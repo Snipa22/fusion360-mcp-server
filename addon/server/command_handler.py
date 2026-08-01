@@ -1791,8 +1791,22 @@ class CommandHandler:
                     tl.item(i).deleteMe()
                 except Exception:
                     pass
-        
-        # Post-condition check: verify all bodies and sketches were deleted
+
+        # Timeline deleteMe() silently fails on sketches — sweep up any that remain
+        for i in range(root.sketches.count - 1, -1, -1):
+            try:
+                root.sketches.item(i).deleteMe()
+            except Exception:
+                pass
+
+        # Same for any remaining bodies
+        for i in range(root.bRepBodies.count - 1, -1, -1):
+            try:
+                root.bRepBodies.item(i).deleteMe()
+            except Exception:
+                pass
+
+        # Post-condition check
         remaining_bodies = root.bRepBodies.count
         remaining_sketches = root.sketches.count
         if remaining_bodies > 0 or remaining_sketches > 0:
@@ -1803,7 +1817,7 @@ class CommandHandler:
                 "remaining_bodies": remaining_bodies,
                 "remaining_sketches": remaining_sketches,
             }
-        
+
         return {"deleted": True}
 
     def undo(self):
