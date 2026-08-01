@@ -1188,11 +1188,18 @@ class CommandHandler:
 
         # Create hole feature
         holes = root.features.holeFeatures
-        hole_input = holes.createSimpleInput(
-            adsk.core.ValueInput.createByReal(diameter / 2)
-        )
+        # Accept both bare float (cm) and dimension string like "5 mm"
+        if isinstance(diameter, str):
+            radius_input = adsk.core.ValueInput.createByString(f"({diameter}) / 2")
+        else:
+            radius_input = adsk.core.ValueInput.createByReal(diameter / 2)
+        if isinstance(depth, str):
+            depth_input = adsk.core.ValueInput.createByString(depth)
+        else:
+            depth_input = adsk.core.ValueInput.createByReal(depth)
+        hole_input = holes.createSimpleInput(radius_input)
         hole_input.setPositionBySketchPoint(sketch_pt)
-        hole_input.setDistanceExtent(adsk.core.ValueInput.createByReal(depth))
+        hole_input.setDistanceExtent(depth_input)
         
         # Set participant body — must be a list, not ObjectCollection
         hole_input.participantBodies = [body]
@@ -2022,7 +2029,11 @@ class CommandHandler:
         center_z: float = None,
         axis: str = "z",
         body_name: str = None,
+        name: str = None,  # alias for body_name
     ):
+        # Accept either body_name or name
+        if name and not body_name:
+            body_name = name
         root = self._root()
         temp_brep = adsk.fusion.TemporaryBRepManager.get()
 
@@ -2057,7 +2068,9 @@ class CommandHandler:
         if body_name:
             new_body.name = body_name
 
-        return {"created": True, "radius": radius, "height": height, "body_name": new_body.name}
+        # Re-read name after any rename — Fusion may assign a different name
+        actual_name = new_body.name
+        return {"created": True, "radius": radius, "height": height, "body_name": actual_name}
 
     def create_sphere(
         self,
