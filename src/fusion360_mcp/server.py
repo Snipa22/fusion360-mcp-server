@@ -191,7 +191,7 @@ def main(mode: str, host: str, port: int) -> int:
     @app.resource("fusion360://status")
     async def read_status() -> str:
         try:
-            result = _send(mode, "ping", port=port)
+            result = _send(mode, "ping", host=host, port=port)
             return json.dumps(
                 {"connected": True, "ping": result},
                 indent=2,
@@ -206,7 +206,7 @@ def main(mode: str, host: str, port: int) -> int:
     @app.resource("fusion360://design")
     async def read_design() -> str:
         try:
-            result = _send(mode, "get_scene_info", port=port)
+            result = _send(mode, "get_scene_info", host=host, port=port)
             return json.dumps(result, indent=2)
         except Exception as exc:
             reset_connection()
@@ -218,6 +218,7 @@ def main(mode: str, host: str, port: int) -> int:
             result = _send(
                 mode,
                 "get_parameters",
+                host=host,
                 port=port,
             )
             return json.dumps(result, indent=2)
@@ -232,6 +233,7 @@ def main(mode: str, host: str, port: int) -> int:
                 mode,
                 "get_object_info",
                 {"name": name},
+                host=host,
                 port=port,
             )
             return json.dumps(result, indent=2)
@@ -246,6 +248,7 @@ def main(mode: str, host: str, port: int) -> int:
                 mode,
                 "get_object_info",
                 {"name": name},
+                host=host,
                 port=port,
             )
             return json.dumps(result, indent=2)
