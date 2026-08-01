@@ -1183,6 +1183,11 @@ class CommandHandler:
         )
         hole_input.setPositionBySketchPoint(sketch_pt)
         hole_input.setDistanceExtent(adsk.core.ValueInput.createByReal(depth))
+        
+        # Set participant body
+        body_coll = adsk.core.ObjectCollection.create()
+        body_coll.add(body)
+        hole_input.participantBodies = body_coll
 
         feat = holes.add(hole_input)
         return {"feature_name": feat.name, "diameter": diameter, "depth": depth}
