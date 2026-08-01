@@ -1263,7 +1263,8 @@ class CommandHandler:
             True,
         )
 
-        inp = threads.createInput(face, is_internal, thread_info)
+        inp = threads.createInput(face, thread_info)
+        inp.isInternal = is_internal
         inp.isModeled = is_modeled
         inp.isFullLength = is_full_length
         if not is_full_length and thread_length:
