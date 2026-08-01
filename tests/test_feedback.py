@@ -4,6 +4,7 @@ import base64
 
 import mcp.types as types
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from fusion360_mcp.hints import classify
 from fusion360_mcp.mock import _MUTATION_MOCKS, mock_command
@@ -116,7 +117,7 @@ class TestMockRenderView:
 class TestFormatResult:
     """_format_result converts mock/addon envelopes to MCP content blocks."""
 
-    def test_error_path_sets_isError(self):
+    def test_error_path_raises_ToolError(self):
         result = {
             "ok": False,
             "error_kind": "PROFILE_NOT_CLOSED",
@@ -124,13 +125,13 @@ class TestFormatResult:
             "hints": ["close the loop", "verify coincident constraints"],
             "traceback": "Traceback (...)",
         }
-        out = _format_result("extrude", result)
-        assert isinstance(out, types.CallToolResult)
-        assert out.isError is True
-        text = out.content[0].text
-        assert "PROFILE_NOT_CLOSED" in text
-        assert "close the loop" in text
-        assert "No profiles in sketch" in text
+        with pytest.raises(ToolError) as exc_info:
+            _format_result("extrude", result)
+        
+        error_text = str(exc_info.value)
+        assert "PROFILE_NOT_CLOSED" in error_text
+        assert "close the loop" in error_text
+        assert "No profiles in sketch" in error_text
 
     def test_success_path_lists_fields(self):
         result = {
@@ -177,7 +178,7 @@ class TestFormatResult:
         # First block is text metadata, second is the image.
         kinds = [b.type for b in out]
         assert kinds == ["text", "image"]
-        assert out[1].mimeType == "image/png"
+        assert out[1].mime_type == "image/png"
         assert out[1].data == result["image_base64"]
 
     def test_non_dict_result(self):

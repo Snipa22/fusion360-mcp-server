@@ -44,7 +44,7 @@ def test_get_tool_list_returns_mcp_types():
     assert len(tools) == len(TOOLS)
     for tool in tools:
         assert hasattr(tool, "name")
-        assert hasattr(tool, "inputSchema")
+        assert hasattr(tool, "input_schema")
 
 
 def test_get_tool_by_name_found():
