@@ -2817,14 +2817,18 @@ class CommandHandler:
 
         if generate_all:
             future = cam.generateAllToolpaths(False)
-            future.wait()
+            import time as _time
+            while not future.isGenerationCompleted:
+                _time.sleep(0.1)
             return {"generated": True, "scope": "all"}
 
         if operation_name and setup_name:
             setup = self._find_setup(cam, setup_name)
             op = self._find_operation(setup, operation_name)
             future = cam.generateToolpath(op)
-            future.wait()
+            import time as _time
+            while not future.isGenerationCompleted:
+                _time.sleep(0.1)
             return {
                 "generated": True,
                 "scope": "operation",
@@ -2837,7 +2841,9 @@ class CommandHandler:
             for i in range(setup.operations.count):
                 ops.add(setup.operations.item(i))
             future = cam.generateToolpath(ops)
-            future.wait()
+            import time as _time
+            while not future.isGenerationCompleted:
+                _time.sleep(0.1)
             return {"generated": True, "scope": "setup", "setup": setup_name}
 
         raise RuntimeError("Provide setup_name, operation_name, or generate_all=true")
