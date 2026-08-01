@@ -112,6 +112,7 @@ class CommandHandler:
                 # scene / query
                 "get_scene_info": self.get_scene_info,
                 "get_object_info": self.get_object_info,
+                "get_bounding_box": self.get_bounding_box,
                 "list_components": self.list_components,
                 # sketch
                 "create_sketch": self.create_sketch,
@@ -154,6 +155,9 @@ class CommandHandler:
                 "export_step": self.export_step,
                 "export_f3d": self.export_f3d,
                 "export_view_sheet": self.export_view_sheet,
+                "export": self.export,
+                "import_mesh": self.import_mesh,
+                "create_box_parametric": self.create_box_parametric,
                 "boolean_operation": self.boolean_operation,
                 "delete_all": self.delete_all,
                 "undo": self.undo,
@@ -511,6 +515,58 @@ class CommandHandler:
                 }
             )
         return {"components": components, "count": len(components)}
+
+    def get_bounding_box(self, name: str):
+        """Axis-aligned bounding box for a body or component. Values in cm."""
+        def _payload(obj_type, mn, mx):
+            return {
+                "found": True, "type": obj_type, "name": name,
+                "min": mn, "max": mx,
+                "size": [mx[i] - mn[i] for i in range(3)],
+                "center": [(mn[i] + mx[i]) / 2 for i in range(3)],
+            }
+
+        # Try body first (covers root bodies + bodies inside components)
+        try:
+            body = self._body_by_name(name)
+            bb = body.boundingBox
+            return _payload(
+                "body",
+                [bb.minPoint.x, bb.minPoint.y, bb.minPoint.z],
+                [bb.maxPoint.x, bb.maxPoint.y, bb.maxPoint.z],
+            )
+        except RuntimeError:
+            pass
+
+        # Fall back to component: union bbox of all contained bodies
+        try:
+            comp = self._component_by_name(name)
+        except RuntimeError:
+            return {"found": False, "name": name}
+
+        mn = [float("inf")] * 3
+        mx = [float("-inf")] * 3
+
+        def _extend(bodies):
+            for i in range(bodies.count):
+                bb = bodies.item(i).boundingBox
+                lo = [bb.minPoint.x, bb.minPoint.y, bb.minPoint.z]
+                hi = [bb.maxPoint.x, bb.maxPoint.y, bb.maxPoint.z]
+                for axis in range(3):
+                    if lo[axis] < mn[axis]:
+                        mn[axis] = lo[axis]
+                    if hi[axis] > mx[axis]:
+                        mx[axis] = hi[axis]
+
+        _extend(comp.bRepBodies)
+        for occ in comp.allOccurrences:
+            _extend(occ.bRepBodies)
+
+        if mn[0] == float("inf"):
+            return {"found": True, "type": "component",
+                    "name": name, "empty": True}
+
+        return _payload("component", mn, mx)
 
     # ------------------------------------------------------------------
     # Sketch
@@ -1184,8 +1240,8 @@ class CommandHandler:
             faces,
             self._construction_plane(pull_direction_plane),
             adsk.core.ValueInput.createByString(f"{angle} deg"),
-            is_tangent_chain,
         )
+        inp.isTangentChain = is_tangent_chain
         feat = drafts.add(inp)
         return {"feature_name": feat.name, "angle": angle}
 
@@ -1386,6 +1442,7 @@ class CommandHandler:
 
     def export_step(self, body_name: str, file_path: str = None):
         body = self._body_by_name(body_name)
+        design = self._design()
 
         if file_path is None:
             desktop = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -1393,32 +1450,12 @@ class CommandHandler:
 
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        export_mgr = self._design().exportManager
-        occ = body.assemblyContext  # None if body is at root
-
-        if occ is None:
-            step_opts = export_mgr.createSTEPExportOptions(file_path, body)
-            export_mgr.execute(step_opts)
-            return {"exported": True, "body": body_name, "file_path": file_path}
-
-        # Body lives in a component occurrence: hide siblings so the
-        # occurrence export only contains the target body. Identify
-        # siblings by entityToken, not name, to handle same-name bodies.
-        target_token = body.entityToken
-        hidden = []
-        for i in range(occ.bRepBodies.count):
-            sibling = occ.bRepBodies.item(i)
-            if sibling.entityToken != target_token and sibling.isVisible:
-                sibling.isVisible = False
-                hidden.append(sibling)
-
-        try:
-            step_opts = export_mgr.createSTEPExportOptions(file_path, occ)
-            export_mgr.execute(step_opts)
-        finally:
-            for sibling in hidden:
-                sibling.isVisible = True
-
+        export_mgr = design.exportManager
+        # Export the root component — passing a single body object as the
+        # scope argument raises "invalid argument geometry" even on valid
+        # watertight solids. Component-scope export is reliable.
+        step_opts = export_mgr.createSTEPExportOptions(file_path)
+        export_mgr.execute(step_opts)
         return {"exported": True, "body": body_name, "file_path": file_path}
 
     def export_f3d(self, file_path: str = None):
@@ -1686,6 +1723,7 @@ class CommandHandler:
 
     def delete_all(self):
         design = self._design()
+        root = self._root()
         if hasattr(design, "timeline") and design.timeline.count > 0:
             tl = design.timeline
             for i in range(tl.count - 1, -1, -1):
@@ -1693,6 +1731,19 @@ class CommandHandler:
                     tl.item(i).deleteMe()
                 except Exception:
                     pass
+        
+        # Post-condition check: verify all bodies and sketches were deleted
+        remaining_bodies = root.bRepBodies.count
+        remaining_sketches = root.sketches.count
+        if remaining_bodies > 0 or remaining_sketches > 0:
+            return {
+                "ok": False,
+                "error_kind": "DELETE_INCOMPLETE",
+                "error_message": f"delete_all completed but {remaining_bodies} bodies and {remaining_sketches} sketches remain",
+                "remaining_bodies": remaining_bodies,
+                "remaining_sketches": remaining_sketches,
+            }
+        
         return {"deleted": True}
 
     def undo(self):
@@ -1755,6 +1806,96 @@ class CommandHandler:
         base_feat.finishEdit()
 
         return {"created": True, "length": length, "width": width, "height": height}
+
+    def create_box_parametric(self, length, width, height,
+                              origin_x: float = 0.0,
+                              origin_y: float = 0.0,
+                              origin_z: float = 0.0,
+                              plane: str = "xy",
+                              component_name: str = None,
+                              body_name: str = None):
+        """Parametric box: sketch rectangle + dimensions + extrude.
+
+        length/width/height may be numeric (cm) or string expressions
+        (e.g. 'boxL', '56 mm'). Expressions are applied via Fusion's
+        parameter system so later changes to User Parameters propagate.
+        """
+        comp = (self._component_by_name(component_name)
+                if component_name else self._root())
+
+        base_plane = self._construction_plane(plane)
+        if origin_z != 0:
+            plane_input = comp.constructionPlanes.createInput()
+            offset_val = adsk.core.ValueInput.createByReal(origin_z)
+            plane_input.setByOffset(base_plane, offset_val)
+            sketch_plane = comp.constructionPlanes.add(plane_input)
+        else:
+            sketch_plane = base_plane
+        sketch = comp.sketches.add(sketch_plane)
+
+        def _initial(val):
+            return float(val) if isinstance(val, (int, float)) else 1.0
+
+        p1 = adsk.core.Point3D.create(origin_x, origin_y, 0)
+        p2 = adsk.core.Point3D.create(
+            origin_x + _initial(length),
+            origin_y + _initial(width), 0)
+        rect = sketch.sketchCurves.sketchLines.addTwoPointRectangle(p1, p2)
+
+        dims = sketch.sketchDimensions
+        text_pt = adsk.core.Point3D.create(0, 0, 0)
+
+        def _set_dim(dim, value):
+            if isinstance(value, (int, float)):
+                dim.parameter.value = float(value)
+            else:
+                dim.parameter.expression = str(value)
+
+        bottom = rect.item(0)
+        length_dim = dims.addDistanceDimension(
+            bottom.startSketchPoint, bottom.endSketchPoint,
+            adsk.fusion.DimensionOrientations.HorizontalDimensionOrientation,
+            text_pt)
+        _set_dim(length_dim, length)
+
+        right = rect.item(1)
+        width_dim = dims.addDistanceDimension(
+            right.startSketchPoint, right.endSketchPoint,
+            adsk.fusion.DimensionOrientations.VerticalDimensionOrientation,
+            text_pt)
+        _set_dim(width_dim, width)
+
+        if sketch.profiles.count == 0:
+            raise RuntimeError("Rectangle sketch produced no profile")
+        profile = sketch.profiles.item(0)
+
+        ext_feats = comp.features.extrudeFeatures
+        ext_input = ext_feats.createInput(
+            profile,
+            adsk.fusion.FeatureOperations.NewBodyFeatureOperation)
+        if isinstance(height, (int, float)):
+            h_vi = adsk.core.ValueInput.createByReal(float(height))
+        else:
+            h_vi = adsk.core.ValueInput.createByString(str(height))
+        ext_input.setDistanceExtent(False, h_vi)
+        feat = ext_feats.add(ext_input)
+
+        body = feat.bodies.item(0)
+        if body_name:
+            body.name = body_name
+
+        return {
+            "created": True,
+            "body_name": body.name,
+            "feature_name": feat.name,
+            "sketch_name": sketch.name,
+            "length": length,
+            "width": width,
+            "height": height,
+            "origin": [origin_x, origin_y, origin_z],
+            "plane": plane,
+            "component": comp.name,
+        }
 
     def create_cylinder(
         self,
