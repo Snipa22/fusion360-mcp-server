@@ -2668,7 +2668,7 @@ class CommandHandler:
                 "in Fusion 360 (Workspace selector → Manufacture) to initialize it, "
                 "then retry."
             )
-
+        return cam_product
 
     def _find_setup(self, cam, name: str):
         for i in range(cam.setups.count):
