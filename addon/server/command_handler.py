@@ -1425,6 +1425,9 @@ class CommandHandler:
         root = self._root()
         body = self._body_by_name(body_name)
 
+        if x == 0 and y == 0 and z == 0:
+            return {"feature_name": None, "body": body_name, "translation": [0, 0, 0], "no_op": True}
+
         move_feats = root.features.moveFeatures
         bodies = adsk.core.ObjectCollection.create()
         bodies.add(body)
