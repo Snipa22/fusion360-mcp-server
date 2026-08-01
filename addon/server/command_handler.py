@@ -1255,10 +1255,17 @@ class CommandHandler:
         face = body.faces.item(face_index)
 
         threads = root.features.threadFeatures
-        thread_data = threads.threadDataQuery
-        thread_data.threadType = thread_type
+        thread_data_query = threads.threadDataQuery
+        # Set query parameters to find the right thread info
+        thread_data_query.threadType = thread_type
+        thread_data_query.threadDesignation = thread_designation
+        # allThreadInfo returns list of ThreadInfo objects matching the query
+        thread_infos = thread_data_query.allThreadInfo
+        if not thread_infos or len(thread_infos) == 0:
+            raise RuntimeError(f"No thread info found for type='{thread_type}' designation='{thread_designation}'")
+        thread_info = thread_infos[0]  # use first match
 
-        inp = threads.createInput(face, thread_data)
+        inp = threads.createInput(face, is_internal, thread_info)
         inp.isModeled = is_modeled
         inp.isFullLength = is_full_length
         if not is_full_length and thread_length:
