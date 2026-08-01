@@ -2257,16 +2257,6 @@ class CommandHandler:
         result = measure.measureMinimumDistance(e1, e2)
         return {
             "distance": result.value,
-            "point_one": [
-                result.pointOnEntityOne.x,
-                result.pointOnEntityOne.y,
-                result.pointOnEntityOne.z,
-            ],
-            "point_two": [
-                result.pointOnEntityTwo.x,
-                result.pointOnEntityTwo.y,
-                result.pointOnEntityTwo.z,
-            ],
         }
 
     def measure_angle(self, entity_one: str, entity_two: str):
