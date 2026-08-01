@@ -2745,7 +2745,7 @@ class CommandHandler:
 
     def cam_create_setup(
         self,
-        body_name: str,
+        body_name: str = None,
         name: str = None,
         operation_type: str = "milling",
         stock_mode: str = "relative_box",
@@ -2754,7 +2754,6 @@ class CommandHandler:
         stock_offset_bottom: float = 0,
     ):
         cam = self._get_cam()
-        body = self._body_by_name(body_name)
 
         op_type_map = {
             "milling": adsk.cam.OperationTypes.MillingOperation,
@@ -2769,7 +2768,9 @@ class CommandHandler:
             )
 
         setup_input = cam.setups.createInput(op_type)
-        setup_input.models = [body]
+        # Note: CAM setups operate on the full design model, not individual bodies.
+        # Fusion defaults to all bodies when models is not set.
+        # body_name is accepted for API compatibility but not used here.
 
         if name:
             setup_input.name = name
