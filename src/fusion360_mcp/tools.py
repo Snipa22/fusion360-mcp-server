@@ -174,7 +174,12 @@ TOOLS: list[dict] = [
             "type": "object",
             "required": ["radius"],
             "properties": {
-                "radius": {"type": "number", "minimum": 0.001},
+                "radius": {
+                    "oneOf": [
+                        {"type": "number", "minimum": 0.001},
+                        {"type": "string", "description": "e.g. '3 mm', '0.3 cm'"}
+                    ]
+                },
                 "body_name": {"type": "string", "description": "Body name (preferred)"},
                 "body_index": {"type": "integer", "default": 0},
                 "edge_selection": {
@@ -193,7 +198,12 @@ TOOLS: list[dict] = [
             "type": "object",
             "required": ["distance"],
             "properties": {
-                "distance": {"type": "number", "minimum": 0.001},
+                "distance": {
+                    "oneOf": [
+                        {"type": "number", "minimum": 0.001},
+                        {"type": "string", "description": "e.g. '3 mm', '0.3 cm'"}
+                    ]
+                },
                 "body_name": {"type": "string"},
                 "body_index": {"type": "integer", "default": 0},
                 "edge_selection": {
@@ -212,7 +222,12 @@ TOOLS: list[dict] = [
             "type": "object",
             "required": ["thickness"],
             "properties": {
-                "thickness": {"type": "number", "minimum": 0.001},
+                "thickness": {
+                    "oneOf": [
+                        {"type": "number", "minimum": 0.001},
+                        {"type": "string", "description": "e.g. '3 mm', '0.3 cm'"}
+                    ]
+                },
                 "body_name": {"type": "string"},
                 "body_index": {"type": "integer", "default": 0},
                 "face_selection": {
@@ -1444,14 +1459,21 @@ TOOLS: list[dict] = [
             "properties": {
                 "radius": {"type": "number", "minimum": 0.001},
                 "height": {"type": "number", "minimum": 0.001},
-                "base_x": {"type": "number", "default": 0},
-                "base_y": {"type": "number", "default": 0},
-                "base_z": {"type": "number", "default": 0},
+                "base_x": {"type": "number", "default": 0, "description": "Base position X (cm)"},
+                "base_y": {"type": "number", "default": 0, "description": "Base position Y (cm)"},
+                "base_z": {"type": "number", "default": 0, "description": "Base position Z (cm)"},
+                "center_x": {"type": "number", "description": "Center position X (overrides base_x)"},
+                "center_y": {"type": "number", "description": "Center position Y (overrides base_y)"},
+                "center_z": {"type": "number", "description": "Center position Z (overrides base_z)"},
                 "axis": {
                     "type": "string",
                     "enum": ["x", "y", "z"],
                     "default": "z",
                     "description": "Cylinder axis direction",
+                },
+                "body_name": {
+                    "type": "string",
+                    "description": "Optional name for the resulting body",
                 },
             },
         },

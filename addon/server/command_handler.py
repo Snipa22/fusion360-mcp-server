@@ -1043,9 +1043,11 @@ class CommandHandler:
 
         fillets = root.features.filletFeatures
         inp = fillets.createInput()
-        inp.addConstantRadiusEdgeSet(
-            edges, adsk.core.ValueInput.createByReal(radius), True
-        )
+        if isinstance(radius, str):
+            radius_input = adsk.core.ValueInput.createByString(radius)
+        else:
+            radius_input = adsk.core.ValueInput.createByReal(radius)
+        inp.addConstantRadiusEdgeSet(edges, radius_input, True)
         feat = fillets.add(inp)
         return {"feature_name": feat.name, "radius": radius, "edges_count": edges.count}
 
@@ -1066,7 +1068,11 @@ class CommandHandler:
 
         chamfers = root.features.chamferFeatures
         inp = chamfers.createInput(edges, True)
-        inp.setToEqualDistance(adsk.core.ValueInput.createByReal(distance))
+        if isinstance(distance, str):
+            distance_input = adsk.core.ValueInput.createByString(distance)
+        else:
+            distance_input = adsk.core.ValueInput.createByReal(distance)
+        inp.setToEqualDistance(distance_input)
         feat = chamfers.add(inp)
         return {
             "feature_name": feat.name,
@@ -1114,7 +1120,11 @@ class CommandHandler:
         body_coll.add(body)
         inp = shells.createInput(body_coll)
         inp.facesToRemove = faces
-        inp.insideThickness = adsk.core.ValueInput.createByReal(thickness)
+        if isinstance(thickness, str):
+            thickness_input = adsk.core.ValueInput.createByString(thickness)
+        else:
+            thickness_input = adsk.core.ValueInput.createByReal(thickness)
+        inp.insideThickness = thickness_input
         feat = shells.add(inp)
         return {
             "feature_name": feat.name,
@@ -1155,27 +1165,24 @@ class CommandHandler:
             else root.bRepBodies.item(body_index)
         )
 
-        # Find the target face
+        # Get the face Z height for top/bottom
         bbox = body.boundingBox
-        target_face = None
         if face_selection == "top":
-            threshold = bbox.maxPoint.z - 0.001
-            for face in body.faces:
-                if face.boundingBox.maxPoint.z > threshold:
-                    target_face = face
-                    break
+            plane_offset = bbox.maxPoint.z
         elif face_selection == "bottom":
-            threshold = bbox.minPoint.z + 0.001
-            for face in body.faces:
-                if face.boundingBox.minPoint.z < threshold:
-                    target_face = face
-                    break
+            plane_offset = bbox.minPoint.z
+        else:
+            raise RuntimeError(f"Unknown face_selection '{face_selection}' — use top/bottom")
 
-        if target_face is None:
-            raise RuntimeError(f"No face found for selection '{face_selection}'")
+        # Create construction plane at the face Z height
+        planes = root.constructionPlanes
+        plane_input = planes.createInput()
+        plane_input.setByOffset(root.xYConstructionPlane, 
+                                adsk.core.ValueInput.createByReal(plane_offset))
+        construction_plane = planes.add(plane_input)
 
-        # Create a sketch point for the hole center
-        sketch = root.sketches.add(target_face)
+        # Sketch on construction plane instead of directly on face
+        sketch = root.sketches.add(construction_plane)
         center = adsk.core.Point3D.create(center_x, center_y, 0)
         sketch_pt = sketch.sketchPoints.add(center)
 
@@ -2010,10 +2017,27 @@ class CommandHandler:
         base_x: float = 0,
         base_y: float = 0,
         base_z: float = 0,
+        center_x: float = None,
+        center_y: float = None,
+        center_z: float = None,
         axis: str = "z",
+        body_name: str = None,
     ):
         root = self._root()
         temp_brep = adsk.fusion.TemporaryBRepManager.get()
+
+        # If center coordinates are provided, calculate base position
+        if center_x is not None or center_y is not None or center_z is not None:
+            # Use provided center values, default to 0 if not provided
+            cx = center_x if center_x is not None else 0
+            cy = center_y if center_y is not None else 0
+            cz = center_z if center_z is not None else 0
+            
+            # Calculate base from center based on axis
+            axis_vec = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}[axis]
+            base_x = cx - axis_vec[0] * height / 2
+            base_y = cy - axis_vec[1] * height / 2
+            base_z = cz - axis_vec[2] * height / 2
 
         base_pt = adsk.core.Point3D.create(base_x, base_y, base_z)
         axis_vec = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}[axis]
@@ -2027,10 +2051,13 @@ class CommandHandler:
 
         base_feat = root.features.baseFeatures.add()
         base_feat.startEdit()
-        root.bRepBodies.add(cyl_body, base_feat)
+        new_body = root.bRepBodies.add(cyl_body, base_feat)
         base_feat.finishEdit()
 
-        return {"created": True, "radius": radius, "height": height}
+        if body_name:
+            new_body.name = body_name
+
+        return {"created": True, "radius": radius, "height": height, "body_name": new_body.name}
 
     def create_sphere(
         self,
@@ -2440,7 +2467,7 @@ class CommandHandler:
     def create_parameter(self, name: str, value: float, unit: str, comment: str = None):
         design = self._design()
         params = design.userParameters
-        params.add(name, adsk.core.ValueInput.createByReal(value), unit, comment or "")
+        params.add(name, adsk.core.ValueInput.createByString(f"{value} {unit}"), unit, comment or "")
         return {"created": True, "name": name, "value": value, "unit": unit}
 
     def set_parameter(self, name: str, value: float):
