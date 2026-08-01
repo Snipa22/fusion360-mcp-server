@@ -1794,6 +1794,7 @@ class CommandHandler:
                     tl.item(i).deleteMe()
                 except Exception:
                     pass
+            adsk.doEvents()
 
         # Timeline deleteMe() silently fails on sketches — sweep up any that remain
         for i in range(root.sketches.count - 1, -1, -1):
@@ -1808,6 +1809,7 @@ class CommandHandler:
                 root.bRepBodies.item(i).deleteMe()
             except Exception:
                 pass
+        adsk.doEvents()
 
         # Post-condition check
         remaining_bodies = root.bRepBodies.count
