@@ -2648,7 +2648,7 @@ class CommandHandler:
     def _get_cam(self):
         """Get the CAM product from the active document."""
         doc = self.app.activeDocument
-        cam_product = doc.products.itemByProductType("CAMProductType")
+        cam_product = doc.products.itemByProductType("adsk::cam::CAM")
         if not cam_product:
             raise RuntimeError(
                 "No CAM workspace found. Open the Manufacturing workspace "
