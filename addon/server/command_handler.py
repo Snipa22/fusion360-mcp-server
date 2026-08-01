@@ -1373,7 +1373,18 @@ class CommandHandler:
         bodies = adsk.core.ObjectCollection.create()
         bodies.add(body)
 
-        anchor = adsk.core.Point3D.create(anchor_x, anchor_y, anchor_z)
+        # Use the design's origin point as anchor if anchor is 0,0,0
+        # Otherwise create a sketch point at the specified location
+        if anchor_x == 0 and anchor_y == 0 and anchor_z == 0:
+            anchor = root.originConstructionPoint
+        else:
+            # Create a temporary sketch to get a proper point reference
+            sketches = root.sketches
+            tmp_sketch = sketches.add(root.xYConstructionPlane)
+            sp = tmp_sketch.sketchPoints.add(
+                adsk.core.Point3D.create(anchor_x, anchor_y, anchor_z)
+            )
+            anchor = sp
 
         scales = root.features.scaleFeatures
         if scale_x is not None and scale_y is not None and scale_z is not None:
