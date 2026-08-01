@@ -2646,15 +2646,29 @@ class CommandHandler:
     # ------------------------------------------------------------------
 
     def _get_cam(self):
-        """Get the CAM product from the active document."""
+        """Get the CAM product from the active document.
+        
+        The CAM product only exists after the Manufacture workspace has been
+        opened at least once in the current session. If it's not found, the
+        user must manually switch to the Manufacture workspace in Fusion 360.
+        """
         doc = self.app.activeDocument
-        cam_product = doc.products.itemByProductType("adsk::cam::CAM")
+        # Try both known productType strings
+        cam_product = None
+        for pt in ("CAMProductType", "adsk::cam::CAM"):
+            try:
+                cam_product = doc.products.itemByProductType(pt)
+                if cam_product:
+                    break
+            except Exception:
+                pass
         if not cam_product:
             raise RuntimeError(
-                "No CAM workspace found. Open the Manufacturing workspace "
-                "in Fusion 360 at least once to initialise it."
+                "CAM product not found. Switch to the Manufacture workspace "
+                "in Fusion 360 (Workspace selector → Manufacture) to initialize it, "
+                "then retry."
             )
-        return cam_product
+
 
     def _find_setup(self, cam, name: str):
         for i in range(cam.setups.count):
