@@ -568,8 +568,47 @@ class CommandHandler:
 
         return _payload("component", mn, mx)
 
-    # ------------------------------------------------------------------
-    # Sketch
+    def import_mesh(self, file_path: str, units: str = "mm", component_name: str = None):
+        """Import a mesh file (STL/OBJ/3MF) as a mesh body. Returns mesh name and bounding box."""
+        import adsk.fusion
+        unit_map = {
+            "mm": adsk.fusion.MeshUnits.MillimeterMeshUnit,
+            "cm": adsk.fusion.MeshUnits.CentimeterMeshUnit,
+            "m":  adsk.fusion.MeshUnits.MeterMeshUnit,
+            "in": adsk.fusion.MeshUnits.InchMeshUnit,
+            "ft": adsk.fusion.MeshUnits.FootMeshUnit,
+        }
+        if units not in unit_map:
+            raise ValueError(f"Unknown units: {units!r} — use mm, cm, m, in, ft")
+
+        root = self._root()
+        if component_name:
+            target = self._component_by_name(component_name)
+        else:
+            target = root
+
+        mesh = target.meshBodies.addByFile(file_path, unit_map[units])
+        if mesh is None:
+            raise RuntimeError(f"import_mesh failed for {file_path!r} — check the file path and format")
+
+        bb = mesh.boundingBox
+        bbox = {
+            "min": [bb.minPoint.x, bb.minPoint.y, bb.minPoint.z],
+            "max": [bb.maxPoint.x, bb.maxPoint.y, bb.maxPoint.z],
+            "size": [bb.maxPoint.x - bb.minPoint.x,
+                     bb.maxPoint.y - bb.minPoint.y,
+                     bb.maxPoint.z - bb.minPoint.z],
+        }
+        return {
+            "imported": True,
+            "file_path": file_path,
+            "mesh_name": mesh.name,
+            "component": target.name,
+            "units": units,
+            "bounding_box": bbox,
+        }
+
+
     # ------------------------------------------------------------------
 
     def create_sketch(self, plane: str = "xy", z_offset: float = None):
