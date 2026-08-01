@@ -2325,16 +2325,16 @@ class CommandHandler:
         }
 
     def create_section_analysis(self, plane: str = "yz", offset: float = 0):
-        root = self._root()
-        analyses = root.analyses
+        design = self._design()
+        # SectionAnalyses is on the design, not the component
+        analyses = design.sectionAnalyses
 
-        inp = analyses.createInput()
-        inp.plane = self._construction_plane(plane)
+        inp = analyses.createInput(self._construction_plane(plane))
         if offset != 0:
-            inp.distance = adsk.core.ValueInput.createByReal(offset)
+            inp.offset = adsk.core.ValueInput.createByReal(offset)
 
-        analyses.add(inp)
-        return {"created": True, "plane": plane, "offset": offset}
+        sa = analyses.add(inp)
+        return {"created": True, "plane": plane, "offset": offset, "name": sa.name}
 
     def check_interference(
         self, component_names: list, include_coincident_faces: bool = False
