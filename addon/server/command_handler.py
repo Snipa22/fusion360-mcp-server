@@ -2326,13 +2326,13 @@ class CommandHandler:
 
     def create_section_analysis(self, plane: str = "yz", offset: float = 0):
         design = self._design()
-        # SectionAnalyses is on the design, not the component
-        analyses = design.sectionAnalyses
+        # SectionAnalyses is nested under design.analyses
+        analyses = design.analyses.sectionAnalyses
 
-        inp = analyses.createInput(self._construction_plane(plane))
-        if offset != 0:
-            inp.offset = adsk.core.ValueInput.createByReal(offset)
-
+        inp = analyses.createInput(
+            self._construction_plane(plane),
+            adsk.core.ValueInput.createByReal(offset),
+        )
         sa = analyses.add(inp)
         return {"created": True, "plane": plane, "offset": offset, "name": sa.name}
 
