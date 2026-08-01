@@ -2331,7 +2331,7 @@ class CommandHandler:
 
         inp = analyses.createInput(
             self._construction_plane(plane),
-            adsk.core.ValueInput.createByReal(offset),
+            float(offset),
         )
         sa = analyses.add(inp)
         return {"created": True, "plane": plane, "offset": offset, "name": sa.name}
