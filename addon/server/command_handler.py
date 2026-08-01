@@ -264,7 +264,10 @@ class CommandHandler:
     # ------------------------------------------------------------------
 
     def _design(self):
-        d = self.app.activeProduct
+        # Always get the Design product by type — activeProduct changes when
+        # switching to Manufacture workspace and returns the CAM product instead.
+        doc = self.app.activeDocument
+        d = doc.products.itemByProductType("DesignProductType")
         if d is None:
             raise RuntimeError("No active design")
         return d
