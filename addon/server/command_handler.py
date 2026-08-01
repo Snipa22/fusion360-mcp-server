@@ -1287,8 +1287,10 @@ class CommandHandler:
         faces = self._select_faces(body, face_selection)
 
         drafts = root.features.draftFeatures
+        # createInput requires a list of BRepFace, not an ObjectCollection
+        faces_list = [faces.item(i) for i in range(faces.count)]
         inp = drafts.createInput(
-            faces,
+            faces_list,
             self._construction_plane(pull_direction_plane),
             is_tangent_chain,  # bool, not angle
         )
