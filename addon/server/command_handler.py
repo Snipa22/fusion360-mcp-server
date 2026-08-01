@@ -1397,6 +1397,27 @@ class CommandHandler:
         feat = move_feats.add(inp)
         return {"feature_name": feat.name, "body": body_name, "translation": [x, y, z]}
 
+    def export(self, body_name: str = None, file_path: str = None, format: str = None):
+        """Unified export dispatcher — routes to export_stl/export_step/export_f3d
+        based on explicit format or file extension."""
+        if format is None and file_path:
+            ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+            format = {"stl": "stl", "step": "step", "stp": "step", "f3d": "f3d"}.get(ext)
+        if format is None:
+            raise ValueError(
+                "Cannot determine export format — pass format='stl'/'step'/'f3d' "
+                "or a file_path with a recognised extension (.stl, .step, .stp, .f3d)"
+            )
+        format = format.lower()
+        if format == "stl":
+            return self.export_stl(body_name=body_name, file_path=file_path)
+        elif format in ("step", "stp"):
+            return self.export_step(body_name=body_name, file_path=file_path)
+        elif format == "f3d":
+            return self.export_f3d(file_path=file_path)
+        else:
+            raise ValueError(f"Unknown export format: {format!r} — use 'stl', 'step', or 'f3d'")
+
     def export_stl(self, body_name: str, file_path: str = None):
         body = self._body_by_name(body_name)
 
