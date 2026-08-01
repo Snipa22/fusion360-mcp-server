@@ -1278,9 +1278,9 @@ class CommandHandler:
         inp = drafts.createInput(
             faces,
             self._construction_plane(pull_direction_plane),
-            adsk.core.ValueInput.createByString(f"{angle} deg"),
+            is_tangent_chain,  # bool, not angle
         )
-        inp.isTangentChain = is_tangent_chain
+        inp.angle = adsk.core.ValueInput.createByString(f"{angle} deg")
         feat = drafts.add(inp)
         return {"feature_name": feat.name, "angle": angle}
 
