@@ -1188,16 +1188,16 @@ class CommandHandler:
 
         # Create hole feature
         holes = root.features.holeFeatures
-        # Accept both bare float (cm) and dimension string like "5 mm"
+        # createSimpleInput takes a diameter (not radius)
         if isinstance(diameter, str):
-            radius_input = adsk.core.ValueInput.createByString(f"({diameter}) / 2")
+            diameter_input = adsk.core.ValueInput.createByString(diameter)
         else:
-            radius_input = adsk.core.ValueInput.createByReal(diameter / 2)
+            diameter_input = adsk.core.ValueInput.createByReal(diameter)
         if isinstance(depth, str):
             depth_input = adsk.core.ValueInput.createByString(depth)
         else:
             depth_input = adsk.core.ValueInput.createByReal(depth)
-        hole_input = holes.createSimpleInput(radius_input)
+        hole_input = holes.createSimpleInput(diameter_input)
         hole_input.setPositionBySketchPoint(sketch_pt)
         hole_input.setDistanceExtent(depth_input)
         
