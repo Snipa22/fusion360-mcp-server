@@ -128,6 +128,18 @@ class TestMockSketch:
         assert result["start"] == [0, 0]
         assert result["end"] == [10, 5]
 
+    def test_set_sketch_visibility(self):
+        result = mock_command(
+            "set_sketch_visibility",
+            {"sketch_name": "Sketch1", "visible": False},
+        )
+        assert result["sketch"] == "Sketch1"
+        assert result["visible"] is False
+
+    def test_hide_all_sketches(self):
+        result = mock_command("hide_all_sketches", {})
+        assert "hidden_count" in result
+
 
 class TestMockFeatures:
     def test_extrude(self):
@@ -675,6 +687,38 @@ class TestMockInspection:
         assert result["component_names"] == ["Gear1", "Gear2"]
         assert "interference_count" in result
 
+    def test_point_containment(self):
+        result = mock_command(
+            "point_containment",
+            {
+                "body_name": "Body1",
+                "points": [[0, 0, 0], [1, 1, 1]],
+            },
+        )
+        assert result["body"] == "Body1"
+        assert result["count"] == 2
+        assert result["results"][0]["point"] == [0, 0, 0]
+        assert result["results"][0]["containment"] in (
+            "inside",
+            "outside",
+            "on_boundary",
+        )
+
+    def test_check_solid(self):
+        result = mock_command("check_solid", {"body_name": "Body1"})
+        assert result["body"] == "Body1"
+        assert "is_valid" in result
+        assert "is_solid" in result
+        assert "shells_count" in result
+        assert "lumps_count" in result
+        assert "euler_characteristic" in result
+
+    def test_get_cylindrical_faces(self):
+        result = mock_command("get_cylindrical_faces", {"body_name": "Body1"})
+        assert result["body"] == "Body1"
+        assert "cylindrical_faces" in result
+        assert "count" in result
+
 
 class TestMockAppearance:
     def test_set_appearance(self):
@@ -913,6 +957,41 @@ class TestMockRenameBody:
         assert result["renamed"] is True
         assert result["old_name"] == "Body1"
         assert result["new_name"] == "ShellTop"
+
+
+class TestMockDocument:
+    def test_save_document(self):
+        result = mock_command("save_document", {"description": "checkpoint"})
+        assert result["saved"] is True
+        assert result["description"] == "checkpoint"
+        assert "deltas" in result
+
+    def test_save_as(self):
+        result = mock_command(
+            "save_as", {"name": "MyPart", "project_name": "Pinchy"}
+        )
+        assert result["saved"] is True
+        assert result["name"] == "MyPart"
+        assert result["project"] == "Pinchy"
+        assert "deltas" in result
+
+    def test_list_documents(self):
+        result = mock_command("list_documents", {})
+        assert "documents" in result
+        assert "count" in result
+        assert "deltas" not in result
+
+    def test_set_active_document(self):
+        result = mock_command("set_active_document", {"name": "MyPart"})
+        assert result["activated"] is True
+        assert result["name"] == "MyPart"
+        assert "deltas" in result
+
+    def test_new_document(self):
+        result = mock_command("new_document", {})
+        assert result["created"] is True
+        assert "name" in result
+        assert "deltas" in result
 
 
 class TestMockFallback:

@@ -67,6 +67,8 @@ def test_expected_tools_present():
         "draw_rectangle",
         "draw_circle",
         "draw_line",
+        "set_sketch_visibility",
+        "hide_all_sketches",
         # features
         "extrude",
         "revolve",
@@ -137,6 +139,9 @@ def test_expected_tools_present():
         "get_physical_properties",
         "create_section_analysis",
         "check_interference",
+        "point_containment",
+        "check_solid",
+        "get_cylindrical_faces",
         # appearance
         "set_appearance",
         # project geometry
@@ -170,6 +175,12 @@ def test_expected_tools_present():
         "rename_body",
         # perception
         "render_view",
+        # document
+        "save_document",
+        "save_as",
+        "list_documents",
+        "set_active_document",
+        "new_document",
     }
     missing = expected - names
     assert not missing, f"Missing tools: {missing}"

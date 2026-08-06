@@ -56,6 +56,10 @@ _MUTATION_MOCKS: frozenset[str] = frozenset(
         "undo",
         "set_parameter",
         "execute_code",
+        "save_document",
+        "save_as",
+        "set_active_document",
+        "new_document",
     }
 )
 
@@ -166,6 +170,17 @@ def _draw_line(p: dict) -> dict:
         "start": [p.get("start_x", 0), p.get("start_y", 0)],
         "end": [p.get("end_x", 1), p.get("end_y", 1)],
     }
+
+
+def _set_sketch_visibility(p: dict) -> dict:
+    return {
+        "sketch": p.get("sketch_name", "Sketch1"),
+        "visible": p.get("visible", True),
+    }
+
+
+def _hide_all_sketches(_p: dict) -> dict:
+    return {"hidden_count": 1}
 
 
 def _extrude(p: dict) -> dict:
@@ -687,6 +702,49 @@ def _check_interference(p: dict) -> dict:
     }
 
 
+def _point_containment(p: dict) -> dict:
+    body_name = p.get("body_name", "Body1")
+    points = p.get("points", [])
+    results = [
+        {"point": pt, "containment": "inside", "raw": 1} for pt in points
+    ]
+    return {"body": body_name, "results": results, "count": len(results)}
+
+
+def _check_solid(p: dict) -> dict:
+    body_name = p.get("body_name", "Body1")
+    return {
+        "body": body_name,
+        "is_valid": True,
+        "is_solid": True,
+        "shells_count": 1,
+        "lumps_count": 1,
+        "faces_count": 6,
+        "edges_count": 12,
+        "vertices_count": 8,
+        "volume_cm3": 1.0,
+        "area_cm2": 6.0,
+        "mass_g": 7.85,
+        "euler_characteristic": 2,
+        "health_state": 0,
+    }
+
+
+def _get_cylindrical_faces(p: dict) -> dict:
+    body_name = p.get("body_name", "Body1")
+    faces = [
+        {
+            "face_index": 0,
+            "type": "Cylinder",
+            "radius_cm": 0.5,
+            "radius_mm": 5.0,
+            "center": [0.0, 0.0, 0.0],
+            "area_cm2": 3.14,
+        },
+    ]
+    return {"body": body_name, "cylindrical_faces": faces, "count": len(faces)}
+
+
 # ── appearance ────────────────────────────────────────────────────────
 
 
@@ -909,6 +967,40 @@ def _render_view(p: dict) -> dict:
     }
 
 
+# ── document management ──────────────────────────────────────────────
+
+
+def _save_document(p: dict) -> dict:
+    return {
+        "saved": True,
+        "name": "MockDesign",
+        "description": p.get("description", ""),
+    }
+
+
+def _save_as(p: dict) -> dict:
+    return {
+        "saved": True,
+        "name": p.get("name", "MockDesign"),
+        "project": p.get("project_name", "Pinchy"),
+    }
+
+
+def _list_documents(_p: dict) -> dict:
+    docs = [
+        {"index": 0, "name": "MockDesign", "is_active": True, "is_saved": True},
+    ]
+    return {"documents": docs, "count": len(docs)}
+
+
+def _set_active_document(p: dict) -> dict:
+    return {"activated": True, "name": p.get("name", "MockDesign")}
+
+
+def _new_document(_p: dict) -> dict:
+    return {"created": True, "name": "MockDesign_new"}
+
+
 # ── default fallback ─────────────────────────────────────────────────
 
 
@@ -927,6 +1019,8 @@ _DISPATCH: dict[str, Any] = {
     "draw_rectangle": _draw_rectangle,
     "draw_circle": _draw_circle,
     "draw_line": _draw_line,
+    "set_sketch_visibility": _set_sketch_visibility,
+    "hide_all_sketches": _hide_all_sketches,
     "extrude": _extrude,
     "revolve": _revolve,
     "fillet": _fillet,
@@ -993,6 +1087,9 @@ _DISPATCH: dict[str, Any] = {
     "get_physical_properties": _get_physical_properties,
     "create_section_analysis": _create_section_analysis,
     "check_interference": _check_interference,
+    "point_containment": _point_containment,
+    "check_solid": _check_solid,
+    "get_cylindrical_faces": _get_cylindrical_faces,
     # appearance
     "set_appearance": _set_appearance,
     # project geometry
@@ -1024,4 +1121,10 @@ _DISPATCH: dict[str, Any] = {
     "set_design_type": _set_design_type,
     # perception
     "render_view": _render_view,
+    # document management
+    "save_document": _save_document,
+    "save_as": _save_as,
+    "list_documents": _list_documents,
+    "set_active_document": _set_active_document,
+    "new_document": _new_document,
 }

@@ -102,6 +102,11 @@ class CommandHandler:
             # parametric & agent-authored changes
             "set_parameter",
             "execute_code",
+            # document management
+            "save_document",
+            "save_as",
+            "set_active_document",
+            "new_document",
         }
     )
 
@@ -128,6 +133,8 @@ class CommandHandler:
                 "trim_curve": self.trim_curve,
                 "extend_curve": self.extend_curve,
                 "project_geometry": self.project_geometry,
+                "set_sketch_visibility": self.set_sketch_visibility,
+                "hide_all_sketches": self.hide_all_sketches,
                 # features
                 "extrude": self.extrude,
                 "revolve": self.revolve,
@@ -180,6 +187,9 @@ class CommandHandler:
                 "get_physical_properties": self.get_physical_properties,
                 "create_section_analysis": self.create_section_analysis,
                 "check_interference": self.check_interference,
+                "point_containment": self.point_containment,
+                "check_solid": self.check_solid,
+                "get_cylindrical_faces": self.get_cylindrical_faces,
                 # appearance
                 "set_appearance": self.set_appearance,
                 # parameters
@@ -215,6 +225,12 @@ class CommandHandler:
                 "set_design_type": self.set_design_type,
                 # perception
                 "render_view": self.render_view,
+                # document management
+                "save_document": self.save_document,
+                "save_as": self.save_as,
+                "list_documents": self.list_documents,
+                "set_active_document": self.set_active_document,
+                "new_document": self.new_document,
             }
 
         cmd_type = command.get("type")
@@ -915,6 +931,19 @@ class CommandHandler:
             "source": source_name,
             "projected_curves": sum(projected),
         }
+
+    def set_sketch_visibility(self, sketch_name: str, visible: bool) -> dict:
+        sketch = self._sketch_by_name(sketch_name)
+        sketch.isVisible = visible
+        return {"sketch": sketch_name, "visible": visible}
+
+    def hide_all_sketches(self) -> dict:
+        root = self._root()
+        count = 0
+        for i in range(root.sketches.count):
+            root.sketches.item(i).isVisible = False
+            count += 1
+        return {"hidden_count": count}
 
     # ------------------------------------------------------------------
     # Features
@@ -2495,6 +2524,72 @@ class CommandHandler:
 
         return {"interferences": results, "count": len(results)}
 
+    def point_containment(self, body_name: str, points: list) -> dict:
+        """Batch point-in-solid query. Returns inside/outside/on-boundary per point."""
+        body = self._body_by_name(body_name)
+        results = []
+        # containment enum: 0=outside, 1=inside, 2=on_boundary
+        label_map = {0: "outside", 1: "inside", 2: "on_boundary"}
+        for pt in points:
+            p3d = adsk.core.Point3D.create(pt[0], pt[1], pt[2])
+            val = body.pointContainment(p3d)
+            results.append(
+                {
+                    "point": pt,
+                    "containment": label_map.get(int(val), f"unknown({int(val)})"),
+                    "raw": int(val),
+                }
+            )
+        return {"body": body_name, "results": results, "count": len(results)}
+
+    def check_solid(self, body_name: str) -> dict:
+        """Composite solid validity check: isValid, isSolid, shells, lumps, volume,
+        face/edge/vertex counts."""
+        body = self._body_by_name(body_name)
+        pp = body.physicalProperties
+        return {
+            "body": body_name,
+            "is_valid": body.isValid,
+            "is_solid": body.isSolid,
+            "shells_count": body.shells.count,
+            "lumps_count": body.lumps.count,
+            "faces_count": body.faces.count,
+            "edges_count": body.edges.count,
+            "vertices_count": body.vertices.count,
+            "volume_cm3": body.volume,
+            "area_cm2": body.area,
+            "mass_g": pp.mass * 1000,
+            # topology note: V - E + F == 2 only holds for genus-0 solids with no
+            # curved edges; through-holes/genus>=1 and curved edges both break it.
+            "euler_characteristic": body.vertices.count
+            - body.edges.count
+            + body.faces.count,
+            "health_state": (
+                int(body.healthState) if hasattr(body, "healthState") else None
+            ),
+        }
+
+    def get_cylindrical_faces(self, body_name: str) -> dict:
+        """Ground-truth hole/bore radius verification."""
+        body = self._body_by_name(body_name)
+        faces = []
+        for i in range(body.faces.count):
+            face = body.faces.item(i)
+            geom = face.geometry
+            if hasattr(geom, "radius"):
+                center = geom.origin if hasattr(geom, "origin") else None
+                faces.append(
+                    {
+                        "face_index": i,
+                        "type": type(geom).__name__,
+                        "radius_cm": geom.radius,
+                        "radius_mm": geom.radius * 10,
+                        "center": [center.x, center.y, center.z] if center else None,
+                        "area_cm2": face.area,
+                    }
+                )
+        return {"body": body_name, "cylindrical_faces": faces, "count": len(faces)}
+
     # ------------------------------------------------------------------
     # Appearance
     # ------------------------------------------------------------------
@@ -3014,6 +3109,76 @@ class CommandHandler:
             "output_folder": output_folder,
             "units": output_units,
         }
+
+    # ------------------------------------------------------------------
+    # Document management
+    # ------------------------------------------------------------------
+
+    def save_document(self, description: str = "") -> dict:
+        doc = self.app.activeDocument
+        if not doc.isSaved:
+            raise RuntimeError(
+                "Document has never been saved — use save_as(name, project_name) first."
+            )
+        doc.save(description)
+        return {"saved": True, "name": doc.name, "description": description}
+
+    def save_as(
+        self, name: str, project_name: str = "Pinchy", description: str = ""
+    ) -> dict:
+        doc = self.app.activeDocument
+        hub = self.app.data.activeHub
+        # Find project by name (case-sensitive)
+        project = None
+        for i in range(hub.dataProjects.count):
+            p = hub.dataProjects.item(i)
+            if p.name == project_name:
+                project = p
+                break
+        if project is None:
+            available = [
+                hub.dataProjects.item(i).name for i in range(hub.dataProjects.count)
+            ]
+            raise RuntimeError(
+                f"Project '{project_name}' not found. Available: {available}"
+            )
+        folder = project.rootFolder
+        doc.saveAs(name, folder, description, "")
+        return {"saved": True, "name": name, "project": project_name}
+
+    def list_documents(self) -> dict:
+        docs = []
+        for i in range(self.app.documents.count):
+            d = self.app.documents.item(i)
+            docs.append(
+                {
+                    "index": i,
+                    "name": d.name,
+                    "is_active": d == self.app.activeDocument,
+                    "is_saved": d.isSaved,
+                }
+            )
+        return {"documents": docs, "count": len(docs)}
+
+    def set_active_document(self, name: str) -> dict:
+        for i in range(self.app.documents.count):
+            d = self.app.documents.item(i)
+            if d.name == name:
+                d.activate()
+                return {"activated": True, "name": name}
+        available = [
+            self.app.documents.item(i).name for i in range(self.app.documents.count)
+        ]
+        raise RuntimeError(
+            f"Document '{name}' not found. Open documents: {available}"
+        )
+
+    def new_document(self) -> dict:
+        doc = self.app.documents.add(
+            adsk.fusion.FusionDocumentTypes.ParametricSolidDesignType
+        )
+        doc.activate()
+        return {"created": True, "name": doc.name}
 
     # ------------------------------------------------------------------
     # Health check

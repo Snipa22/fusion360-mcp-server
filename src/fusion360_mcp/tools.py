@@ -118,6 +118,28 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "name": "set_sketch_visibility",
+        "title": "Set Sketch Visibility",
+        "description": "Show or hide a named sketch",
+        "inputSchema": {
+            "type": "object",
+            "required": ["sketch_name", "visible"],
+            "properties": {
+                "sketch_name": {"type": "string"},
+                "visible": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "name": "hide_all_sketches",
+        "title": "Hide All Sketches",
+        "description": "Hide every sketch in the root component",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
     # ── features ─────────────────────────────────────────────────────
     {
         "name": "extrude",
@@ -1684,6 +1706,62 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "name": "point_containment",
+        "title": "Point Containment",
+        "description": (
+            "Batch point-in-solid query. Returns inside/outside/on-boundary "
+            "for each point against a body"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["body_name", "points"],
+            "properties": {
+                "body_name": {"type": "string"},
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                    },
+                    "minItems": 1,
+                    "description": "Array of [x,y,z] points (cm)",
+                },
+            },
+        },
+    },
+    {
+        "name": "check_solid",
+        "title": "Check Solid",
+        "description": (
+            "Composite solid validity check: isValid, isSolid, shells, lumps, "
+            "volume, and face/edge/vertex counts"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["body_name"],
+            "properties": {
+                "body_name": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "get_cylindrical_faces",
+        "title": "Get Cylindrical Faces",
+        "description": (
+            "List cylindrical faces on a body with radius and center — "
+            "ground-truth hole/bore radius verification"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["body_name"],
+            "properties": {
+                "body_name": {"type": "string"},
+            },
+        },
+    },
     # ── appearance / material ──────────────────────────────────────────
     {
         "name": "set_appearance",
@@ -2303,6 +2381,80 @@ TOOLS: list[dict] = [
             },
         },
     },
+    # ── document ─────────────────────────────────────────────────────────
+    {
+        "name": "save_document",
+        "title": "Save Document",
+        "description": (
+            "Save the active document. Fails if the document has never been "
+            "saved — use save_as first in that case."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Version description / commit message",
+                },
+            },
+        },
+    },
+    {
+        "name": "save_as",
+        "title": "Save As",
+        "description": (
+            "Save the active document as a new named file in a Fusion Team "
+            "project (Data Panel)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "description": "New document name"},
+                "project_name": {
+                    "type": "string",
+                    "default": "Pinchy",
+                    "description": "Target project in the active hub",
+                },
+                "description": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Version description / commit message",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_documents",
+        "title": "List Documents",
+        "description": "Enumerate all open documents and mark the active one",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "set_active_document",
+        "title": "Set Active Document",
+        "description": "Switch the active document to an already-open document by name",
+        "inputSchema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string", "description": "Document name"},
+            },
+        },
+    },
+    {
+        "name": "new_document",
+        "title": "New Document",
+        "description": "Create and activate a new parametric solid design document",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 # ── tool annotations ──────────────────────────────────────────────────
@@ -2325,6 +2477,10 @@ _READ_ONLY = {
     "cam_get_operation_info",
     "get_design_type",
     "render_view",
+    "point_containment",
+    "check_solid",
+    "get_cylindrical_faces",
+    "list_documents",
 }
 _DESTRUCTIVE = {"delete_all", "delete_parameter"}
 _IDEMPOTENT = {
@@ -2347,6 +2503,13 @@ _IDEMPOTENT = {
     "set_design_type",
     "rename_body",
     "render_view",
+    "point_containment",
+    "check_solid",
+    "get_cylindrical_faces",
+    "list_documents",
+    "set_sketch_visibility",
+    "hide_all_sketches",
+    "set_active_document",
 }
 
 for _t in TOOLS:
