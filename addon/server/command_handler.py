@@ -1367,7 +1367,10 @@ class CommandHandler:
         inp = drafts.createInput(faces_list, pull_plane, is_tangent_chain)
         # DraftFeatureInput has no .angle property — must use setSingleAngle(angle=ValueInput)
         # (SWIG binding requires keyword arg form, not positional)
-        inp.setSingleAngle(angle=adsk.core.ValueInput.createByString(f"{angle} deg"))
+        inp.setSingleAngle(
+            angle=adsk.core.ValueInput.createByString(f"{angle} deg"),
+            isSymmetric=False,
+        )
 
         feat = drafts.add(inp)
 
