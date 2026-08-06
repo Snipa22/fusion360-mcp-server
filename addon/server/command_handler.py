@@ -1323,7 +1323,6 @@ class CommandHandler:
         root = self._root()
         body = self._body_by_name(body_name)
 
-        # Capture pre-call mass for silent-no-op detection
         mass_before = body.physicalProperties.mass
 
         faces = self._select_faces(body, face_selection)
@@ -1333,27 +1332,16 @@ class CommandHandler:
             )
 
         drafts = root.features.draftFeatures
-        # createInput requires a list of BRepFace, not an ObjectCollection
         faces_list = [faces.item(i) for i in range(faces.count)]
-
         pull_plane = self._construction_plane(pull_direction_plane)
 
-        # Fusion's DraftFeatures.createInput signature:
-        #   createInput(faces, pullDirectionPlane, isTangentChain)
-        # angle must be passed as the 4th arg, NOT set as a property after createInput —
-        # setting inp.angle after construction is silently ignored by Fusion.
-        angle_input = adsk.core.ValueInput.createByString(f"{angle} deg")
-        inp = drafts.createInput(
-            faces_list,
-            pull_plane,
-            is_tangent_chain,
-            angle_input,  # 4th positional arg — NOT inp.angle = ... afterward
-        )
+        inp = drafts.createInput(faces_list, pull_plane, is_tangent_chain)
+        # DraftFeatureInput has no .angle property — must use setSingleAngle(angle=ValueInput)
+        # (SWIG binding requires keyword arg form, not positional)
+        inp.setSingleAngle(angle=adsk.core.ValueInput.createByString(f"{angle} deg"))
 
         feat = drafts.add(inp)
 
-        # Post-call sanity check: if mass is unchanged for a non-zero angle, the draft
-        # silently no-oped (likely degenerate pull direction or Fusion API issue).
         mass_after = body.physicalProperties.mass
         if angle != 0 and abs(mass_after - mass_before) < 1e-8:
             return {
@@ -1365,9 +1353,8 @@ class CommandHandler:
                 "mass_after_g": mass_after * 1000,
                 "error_message": (
                     "draft_faces completed but body mass is unchanged — the draft "
-                    "had no effect. Possible causes: pull_direction_plane is "
-                    "parallel to the selected faces, or the angle is too small. "
-                    "Try pull_direction_plane='xz' or 'yz' instead of 'xy'."
+                    "had no effect. Try a different pull_direction_plane "
+                    "(e.g. 'xz' or 'yz' instead of 'xy')."
                 ),
             }
 
