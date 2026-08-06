@@ -2531,8 +2531,9 @@ class CommandHandler:
         """Batch point-in-solid query. Returns inside/outside/on-boundary per point."""
         body = self._body_by_name(body_name)
         results = []
-        # containment enum: 0=outside, 1=inside, 2=on_boundary
-        label_map = {0: "outside", 1: "inside", 2: "on_boundary"}
+        # Fusion PointContainment enum (confirmed live via adsk.fusion.PointContainment.*):
+        # PointInsidePointContainment=0, PointOnPointContainment=1, PointOutsidePointContainment=2
+        label_map = {0: "inside", 1: "on_boundary", 2: "outside"}
         for pt in points:
             p3d = adsk.core.Point3D.create(pt[0], pt[1], pt[2])
             val = body.pointContainment(p3d)
