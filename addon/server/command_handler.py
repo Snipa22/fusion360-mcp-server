@@ -3178,7 +3178,7 @@ class CommandHandler:
 
     def new_document(self) -> dict:
         doc = self.app.documents.add(
-            adsk.fusion.FusionDocumentTypes.ParametricSolidDesignType
+            adsk.core.DocumentTypes.FusionDesignDocumentType
         )
         doc.activate()
         return {"created": True, "name": doc.name}
