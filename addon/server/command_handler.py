@@ -305,6 +305,28 @@ class CommandHandler:
                     return b
         raise RuntimeError(f"Body '{name}' not found")
 
+    def _body_or_plane_by_name(self, name: str):
+        """Resolve a name to a BRepBody or ConstructionPlane.
+        Checks construction planes first (since that's the gap in split_body),
+        then falls back to bRepBodies. Raises RuntimeError if not found in either.
+        """
+        root = self._root()
+        # Check construction planes first
+        for i in range(root.constructionPlanes.count):
+            plane = root.constructionPlanes.item(i)
+            if plane.name == name:
+                return plane
+        # Fall back to bodies
+        for i in range(root.bRepBodies.count):
+            body = root.bRepBodies.item(i)
+            if body.name == name:
+                return body
+        raise RuntimeError(
+            f"BODY_NOT_FOUND: '{name}' not found as a construction plane or body. "
+            f"Available planes: {[root.constructionPlanes.item(i).name for i in range(root.constructionPlanes.count)]}, "
+            f"bodies: {[root.bRepBodies.item(i).name for i in range(root.bRepBodies.count)]}"
+        )
+
     def _component_by_name(self, name: str):
         root = self._root()
         if root.name == name:
@@ -1300,19 +1322,61 @@ class CommandHandler:
     ):
         root = self._root()
         body = self._body_by_name(body_name)
+
+        # Capture pre-call mass for silent-no-op detection
+        mass_before = body.physicalProperties.mass
+
         faces = self._select_faces(body, face_selection)
+        if faces.count == 0:
+            raise RuntimeError(
+                f"draft_faces: no '{face_selection}' faces found on '{body_name}'"
+            )
 
         drafts = root.features.draftFeatures
         # createInput requires a list of BRepFace, not an ObjectCollection
         faces_list = [faces.item(i) for i in range(faces.count)]
+
+        pull_plane = self._construction_plane(pull_direction_plane)
+
+        # Fusion's DraftFeatures.createInput signature:
+        #   createInput(faces, pullDirectionPlane, isTangentChain)
+        # angle must be passed as the 4th arg, NOT set as a property after createInput —
+        # setting inp.angle after construction is silently ignored by Fusion.
+        angle_input = adsk.core.ValueInput.createByString(f"{angle} deg")
         inp = drafts.createInput(
             faces_list,
-            self._construction_plane(pull_direction_plane),
-            is_tangent_chain,  # bool, not angle
+            pull_plane,
+            is_tangent_chain,
+            angle_input,  # 4th positional arg — NOT inp.angle = ... afterward
         )
-        inp.angle = adsk.core.ValueInput.createByString(f"{angle} deg")
+
         feat = drafts.add(inp)
-        return {"feature_name": feat.name, "angle": angle}
+
+        # Post-call sanity check: if mass is unchanged for a non-zero angle, the draft
+        # silently no-oped (likely degenerate pull direction or Fusion API issue).
+        mass_after = body.physicalProperties.mass
+        if angle != 0 and abs(mass_after - mass_before) < 1e-8:
+            return {
+                "ok": False,
+                "error_kind": "DRAFT_NO_OP",
+                "feature_name": feat.name,
+                "angle": angle,
+                "mass_before_g": mass_before * 1000,
+                "mass_after_g": mass_after * 1000,
+                "error_message": (
+                    "draft_faces completed but body mass is unchanged — the draft "
+                    "had no effect. Possible causes: pull_direction_plane is "
+                    "parallel to the selected faces, or the angle is too small. "
+                    "Try pull_direction_plane='xz' or 'yz' instead of 'xy'."
+                ),
+            }
+
+        return {
+            "feature_name": feat.name,
+            "angle": angle,
+            "faces_drafted": faces.count,
+            "mass_delta_g": (mass_after - mass_before) * 1000,
+        }
 
     def split_body(
         self,
@@ -1326,14 +1390,21 @@ class CommandHandler:
 
         splits = root.features.splitBodyFeatures
         if splitting_body:
-            tool = self._body_by_name(splitting_body)
+            # Try construction planes by name first, then bodies
+            tool = self._body_or_plane_by_name(splitting_body)
             inp = splits.createInput(body, tool, extend_tool)
         else:
             inp = splits.createInput(
                 body, self._construction_plane(splitting_plane), extend_tool
             )
         feat = splits.add(inp)
-        return {"feature_name": feat.name, "splitting_plane": splitting_plane}
+        body_count = root.bRepBodies.count
+        return {
+            "feature_name": feat.name,
+            "splitting_plane": splitting_plane,
+            "splitting_body": splitting_body,
+            "body_count_after": body_count,
+        }
 
     def split_face(
         self,
@@ -1800,6 +1871,8 @@ class CommandHandler:
         target = self._body_by_name(target_body)
         tool = self._body_by_name(tool_body)
 
+        body_count_before = root.bRepBodies.count
+
         combine_feats = root.features.combineFeatures
         tool_coll = adsk.core.ObjectCollection.create()
         tool_coll.add(tool)
@@ -1818,11 +1891,38 @@ class CommandHandler:
         inp = combine_feats.createInput(target, tool_coll)
         inp.operation = op
         feat = combine_feats.add(inp)
+
+        body_count_after = root.bRepBodies.count
+
+        # Fusion's combineFeatures.add() reports "Healthy" even when bodies don't
+        # actually overlap (join/intersect of disjoint solids silently no-ops).
+        # Detect this: a successful join or intersect MUST reduce body count.
+        if operation in ("join", "intersect") and body_count_after >= body_count_before:
+            return {
+                "ok": False,
+                "error_kind": "BOOLEAN_NO_OP",
+                "feature_name": feat.name,
+                "operation": operation,
+                "target": target_body,
+                "tool": tool_body,
+                "body_count_before": body_count_before,
+                "body_count_after": body_count_after,
+                "error_message": (
+                    f"boolean_operation('{operation}') completed but body count did not "
+                    f"decrease ({body_count_before} → {body_count_after}). The bodies "
+                    f"likely do not overlap. Use check_interference to verify contact, "
+                    f"or move the bodies closer before joining."
+                ),
+            }
+
         return {
             "feature_name": feat.name,
             "operation": operation,
             "target": target_body,
             "tool": tool_body,
+            "body_count_before": body_count_before,
+            "body_count_after": body_count_after,
+            "body_count_delta": body_count_after - body_count_before,
         }
 
     def delete_all(self):
