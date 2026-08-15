@@ -1712,6 +1712,10 @@ class CommandHandler:
                 adsk.fusion.MeshRefinementSettings.MeshRefinementMedium
             )
             export_mgr.execute(stl_opts)
+            if not os.path.exists(file_path):
+                raise RuntimeError(
+                    f"STL export reported success but no file was written to '{file_path}'."
+                )
             return {"exported": True, "body": body_name, "file_path": file_path}
 
         # Body lives in a component occurrence: hide siblings so the
@@ -1735,6 +1739,10 @@ class CommandHandler:
             for sibling in hidden:
                 sibling.isVisible = True
 
+        if not os.path.exists(file_path):
+            raise RuntimeError(
+                f"STL export reported success but no file was written to '{file_path}'."
+            )
         return {"exported": True, "body": body_name, "file_path": file_path}
 
     def export_step(self, body_name: str, file_path: str = None):
@@ -1752,7 +1760,13 @@ class CommandHandler:
         # scope argument raises "invalid argument geometry" even on valid
         # watertight solids. Component-scope export is reliable.
         step_opts = export_mgr.createSTEPExportOptions(file_path)
-        export_mgr.execute(step_opts)
+        result = export_mgr.execute(step_opts)
+        if not result or not os.path.exists(file_path):
+            raise RuntimeError(
+                f"STEP export reported success but no file was written to '{file_path}'. "
+                "This is a known Fusion silent-failure — try exporting with a different "
+                "path, or use export_f3d and convert externally."
+            )
         return {"exported": True, "body": body_name, "file_path": file_path}
 
     def export_f3d(self, file_path: str = None):
