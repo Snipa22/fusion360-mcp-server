@@ -13,7 +13,6 @@ import io
 import math
 import os
 import tempfile
-import threading
 import time
 import traceback
 from contextlib import redirect_stdout
@@ -38,89 +37,55 @@ def _now_iso() -> str:
 # ----------------------------------------------------------------------
 
 
-def _crawl_project(
-    app, project_name: str, cache: dict, timeout_s: float = 20.0
-) -> int:
-    """Crawl one project's ``rootFolder.dataFiles``, updating *cache* in
-    place. Runs the actual (network-bound) crawl on a sub-thread and waits
-    up to *timeout_s* so a single slow/hung project can't stall the rest of
-    the background crawl."""
-    done = threading.Event()
-    count = {"n": 0}
+def _crawl_project_main_thread(app, project_name: str, cache: dict) -> int:
+    """Crawl one project's ``rootFolder.dataFiles`` on the MAIN THREAD.
 
-    def _do_crawl():
-        try:
-            hub = app.data.activeHub
-            project = None
-            for i in range(hub.dataProjects.count):
-                p = hub.dataProjects.item(i)
-                if p.name == project_name:
-                    project = p
-                    break
-            if project is None:
-                return
-            data_files = project.rootFolder.dataFiles  # network call
-            for i in range(data_files.count):
-                df = data_files.item(i)
-                file_info = {
-                    "name": df.name,
-                    "id": df.id,
-                    "last_modified": df.dateModified.isoformat(),
-                    "description": df.description or "",
-                }
-                try:
-                    file_info["version"] = df.versionNumber
-                except AttributeError:
-                    pass
-                hub_cache._upsert_file_entry(cache, project_name, file_info)
-                count["n"] += 1
-            cache.setdefault("projects", {}).setdefault(project_name, {})[
-                "last_crawled"
-            ] = _now_iso()
-        except Exception:
-            log.error(
-                "list_hub_files: crawl failed for project '%s':\n%s",
-                project_name,
-                traceback.format_exc(),
-            )
-        finally:
-            done.set()
-
-    t = threading.Thread(target=_do_crawl, daemon=True)
-    t.start()
-    done.wait(timeout_s)
-    return count["n"]
-
-
-def _background_crawl(app) -> None:
-    """Background thread entry point: crawl 'Pinchy' first, then the rest.
-    Never run on the main thread — ``dataFiles`` makes a network call."""
-    log.info("list_hub_files: background crawl starting")
-    cache = hub_cache._load_cache()
-
+    The Fusion adsk API is not thread-safe — calling ``dataFiles`` from a
+    daemon/background thread silently fails or times out.  This function must
+    only be called from the main thread (i.e. inside a tool handler that was
+    dispatched through the CustomEvent bridge, such as ``list_hub_files``).
+    """
     try:
         hub = app.data.activeHub
-        cache["hub"] = hub.name
-        names = [
-            hub.dataProjects.item(i).name for i in range(hub.dataProjects.count)
-        ]
+        project = None
+        for i in range(hub.dataProjects.count):
+            p = hub.dataProjects.item(i)
+            if p.name == project_name:
+                project = p
+                break
+        if project is None:
+            log.warning("list_hub_files: project '%s' not found", project_name)
+            return 0
+        data_files = project.rootFolder.dataFiles  # cloud call — ~1-3s on main thread
+        count = 0
+        for i in range(data_files.count):
+            df = data_files.item(i)
+            file_info = {
+                "name": df.name,
+                "id": df.id,
+                "last_modified": df.dateModified.isoformat(),
+                "description": df.description or "",
+            }
+            try:
+                file_info["version"] = df.versionNumber
+            except AttributeError:
+                pass
+            hub_cache._upsert_file_entry(cache, project_name, file_info)
+            count += 1
+        cache.setdefault("projects", {}).setdefault(project_name, {})[
+            "last_crawled"
+        ] = _now_iso()
+        log.info(
+            "list_hub_files: crawled project '%s' — %d files", project_name, count
+        )
+        return count
     except Exception:
         log.error(
-            "list_hub_files: background crawl failed to enumerate projects:\n%s",
+            "list_hub_files: crawl failed for project '%s':\n%s",
+            project_name,
             traceback.format_exc(),
         )
-        return
-
-    ordered = sorted(names, key=lambda n: (n != "Pinchy", n))
-
-    for name in ordered:
-        _crawl_project(app, name, cache)
-        cache["last_updated"] = _now_iso()
-        hub_cache._save_cache(cache)
-
-    log.info(
-        "list_hub_files: background crawl complete (%d projects)", len(ordered)
-    )
+        return 0
 
 
 class CommandHandler:
@@ -129,10 +94,8 @@ class CommandHandler:
     def __init__(self):
         self.app = adsk.core.Application.get()
         self.ui = self.app.userInterface
-        t = threading.Thread(
-            target=_background_crawl, args=(self.app,), daemon=True
-        )
-        t.start()
+        # No background thread — adsk API is main-thread-only.
+        # list_hub_files does a lazy on-demand crawl when the cache is stale.
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -3321,8 +3284,55 @@ class CommandHandler:
     def list_hub_files(
         self, project_name: str = "Pinchy", search: str = None
     ) -> dict:
-        """Read-only, instant lookup against the on-disk write-through
-        cache — never calls the (slow, network-bound) Fusion data API."""
+        """Return saved files for *project_name* from the local cache.
+
+        Lazy crawl: if the requested project has never been indexed (or
+        'all' is requested and no projects exist yet), we crawl the
+        project(s) right now on the main thread before returning.  The
+        result is cached to disk so subsequent calls are instant.
+
+        The Fusion adsk Data API is main-thread-only — background threads
+        silently fail.  We're always dispatched through the CustomEvent
+        bridge here, so this is safe.
+        """
+        cache = hub_cache._load_cache()
+        projects = cache.get("projects", {})
+
+        # Determine which projects need crawling.
+        need_crawl: list[str] = []
+        if project_name == "all" or project_name is None:
+            if not projects:
+                # First ever call — enumerate and crawl everything.
+                try:
+                    hub = self.app.data.activeHub
+                    cache["hub"] = hub.name
+                    all_names = [
+                        hub.dataProjects.item(i).name
+                        for i in range(hub.dataProjects.count)
+                    ]
+                    # Pinchy first.
+                    need_crawl = sorted(
+                        all_names, key=lambda n: (n != "Pinchy", n)
+                    )
+                except Exception:
+                    log.error(
+                        "list_hub_files: failed to enumerate projects:\n%s",
+                        traceback.format_exc(),
+                    )
+        elif project_name not in projects:
+            # Specific project not yet cached.
+            try:
+                cache["hub"] = self.app.data.activeHub.name
+            except Exception:
+                pass
+            need_crawl = [project_name]
+
+        if need_crawl:
+            for name in need_crawl:
+                _crawl_project_main_thread(self.app, name, cache)
+            cache["last_updated"] = _now_iso()
+            hub_cache._save_cache(cache)
+
         return hub_cache._build_list_response(
             project_name=project_name, search=search
         )
