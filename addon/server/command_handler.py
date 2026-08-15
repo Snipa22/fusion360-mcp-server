@@ -69,7 +69,11 @@ def _crawl_project_main_thread(app, project_name: str, cache: dict) -> int:
             file_info = {
                 "name": df.name,
                 "id": df.id,
-                "last_modified": df.dateModified.isoformat(),
+                "last_modified": datetime.datetime.fromtimestamp(
+                    df.dateModified
+                ).isoformat()
+                if isinstance(df.dateModified, (int, float))
+                else str(df.dateModified),
                 "description": df.description or "",
             }
             try:
