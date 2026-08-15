@@ -858,6 +858,18 @@ class CommandHandler:
             sketch.sketchCurves.sketchLines.addByTwoPoints(p1, p2)
         return {"sketch": sketch.name, "sides": sides, "radius": radius}
 
+    @staticmethod
+    def _apply_fix_constraint(entity) -> None:
+        """Apply a 'fix' (fully-constrained / locked) constraint to a sketch entity.
+
+        ``GeometricConstraints`` has no ``addFix`` method. In the Fusion API the fix
+        state is a boolean property on individual geometry objects:
+        - ``SketchPoint.isFixed``
+        - ``SketchCurve.isFixed``
+        Setting it to True locks the entity in place.
+        """
+        entity.isFixed = True
+
     def add_constraint(
         self,
         constraint_type: str,
@@ -881,7 +893,7 @@ class CommandHandler:
             "perpendicular": lambda: constraints.addPerpendicular(e1, e2),
             "tangent": lambda: constraints.addTangent(e1, e2),
             "equal": lambda: constraints.addEqual(e1, e2),
-            "fix": lambda: constraints.addFix(e1),
+            "fix": lambda: _apply_fix_constraint(e1),
             "horizontal": lambda: constraints.addHorizontal(e1),
             "vertical": lambda: constraints.addVertical(e1),
             "concentric": lambda: constraints.addConcentric(e1, e2),
@@ -3382,10 +3394,26 @@ class CommandHandler:
             )
         file_id = entry.get("id")
         if not file_id:
+            # Entry exists but has no id — this happens when save_as wrote the cache
+            # entry before the cloud API backfilled the lineage URN. Force a re-crawl
+            # of this project to try to get the id, then retry once.
+            log.info(
+                "_find_hub_file: no id for '%s' in cache, forcing re-crawl of '%s'",
+                name,
+                project_name,
+            )
+            _crawl_project_main_thread(self.app, project_name, cache)
+            cache["last_updated"] = _now_iso()
+            hub_cache._save_cache(cache)
+            entries = cache.get("projects", {}).get(project_name, {}).get("files", [])
+            entry = next((e for e in entries if e["name"] == name), None)
+            file_id = entry.get("id") if entry else None
+        if not file_id:
             raise RuntimeError(
-                f"Document '{name}' has no hub id in the local cache — "
-                "it may not have synced to the cloud yet. "
-                "Wait a moment and try list_hub_files again to refresh."
+                f"Document '{name}' has no hub id — the file may not exist in the "
+                f"cloud hub (it may have been saved locally only, or the project "
+                f"'{project_name}' may not contain a file with this exact name). "
+                "Check list_hub_files for the current state."
             )
         # Correct API: app.data.findFileById (NOT findObjectById — that doesn't exist)
         df = self.app.data.findFileById(file_id)
