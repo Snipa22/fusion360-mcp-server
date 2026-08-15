@@ -182,6 +182,9 @@ def test_expected_tools_present():
         "set_active_document",
         "new_document",
         "list_hub_files",
+        "open_document",
+        "close_document",
+        "delete_document",
     }
     missing = expected - names
     assert not missing, f"Missing tools: {missing}"

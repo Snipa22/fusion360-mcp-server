@@ -60,6 +60,9 @@ _MUTATION_MOCKS: frozenset[str] = frozenset(
         "save_as",
         "set_active_document",
         "new_document",
+        "open_document",
+        "close_document",
+        "delete_document",
     }
 )
 
@@ -1028,6 +1031,33 @@ def _list_hub_files(p: dict) -> dict:
     }
 
 
+def _open_document(p: dict) -> dict:
+    return {
+        "ok": True,
+        "opened": True,
+        "name": p.get("name", "MockDoc"),
+        "project": p.get("project_name", "Pinchy"),
+    }
+
+
+def _close_document(p: dict) -> dict:
+    return {
+        "ok": True,
+        "closed": True,
+        "name": p.get("name", "MockDoc"),
+        "saved": p.get("save", False),
+    }
+
+
+def _delete_document(p: dict) -> dict:
+    return {
+        "ok": True,
+        "deleted": True,
+        "name": p.get("name", "MockDoc"),
+        "project": p.get("project_name", "Pinchy"),
+    }
+
+
 # ── default fallback ─────────────────────────────────────────────────
 
 
@@ -1155,4 +1185,7 @@ _DISPATCH: dict[str, Any] = {
     "set_active_document": _set_active_document,
     "new_document": _new_document,
     "list_hub_files": _list_hub_files,
+    "open_document": _open_document,
+    "close_document": _close_document,
+    "delete_document": _delete_document,
 }

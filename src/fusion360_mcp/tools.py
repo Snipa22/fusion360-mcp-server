@@ -2485,6 +2485,78 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "name": "open_document",
+        "title": "Open Document",
+        "description": (
+            "Open a saved hub document by name and make it the active document. "
+            "Looks up the file in the local cache (default project: 'Pinchy'). "
+            "Use list_hub_files to find exact names."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Exact document name as shown in list_hub_files",
+                },
+                "project_name": {
+                    "type": "string",
+                    "default": "Pinchy",
+                    "description": "Hub project containing the document",
+                },
+            },
+        },
+    },
+    {
+        "name": "close_document",
+        "title": "Close Document",
+        "description": (
+            "Close a currently open document by name. "
+            "Pass save=true to save before closing; "
+            "save=false (default) discards unsaved changes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the open document to close",
+                },
+                "save": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, save the document before closing",
+                },
+            },
+        },
+    },
+    {
+        "name": "delete_document",
+        "title": "Delete Document",
+        "description": (
+            "Permanently delete a document from the hub. "
+            "The document must not be currently open — close it first. "
+            "This is irreversible."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Exact document name to delete",
+                },
+                "project_name": {
+                    "type": "string",
+                    "default": "Pinchy",
+                    "description": "Hub project containing the document",
+                },
+            },
+        },
+    },
 ]
 
 # ── tool annotations ──────────────────────────────────────────────────
@@ -2513,7 +2585,7 @@ _READ_ONLY = {
     "list_documents",
     "list_hub_files",
 }
-_DESTRUCTIVE = {"delete_all", "delete_parameter"}
+_DESTRUCTIVE = {"delete_all", "delete_parameter", "delete_document"}
 _IDEMPOTENT = {
     "ping",
     "get_scene_info",

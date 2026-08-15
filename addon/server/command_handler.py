@@ -181,6 +181,9 @@ class CommandHandler:
             "save_as",
             "set_active_document",
             "new_document",
+            "open_document",
+            "close_document",
+            "delete_document",
         }
     )
 
@@ -306,6 +309,9 @@ class CommandHandler:
                 "set_active_document": self.set_active_document,
                 "new_document": self.new_document,
                 "list_hub_files": self.list_hub_files,
+                "open_document": self.open_document,
+                "close_document": self.close_document,
+                "delete_document": self.delete_document,
             }
 
         cmd_type = command.get("type")
@@ -3353,6 +3359,95 @@ class CommandHandler:
 
     def ping(self):
         return {"pong": True}
+
+    # ------------------------------------------------------------------
+    # Document lifecycle — open / close / delete
+    # ------------------------------------------------------------------
+
+    def _find_hub_file(self, name: str, project_name: str) -> "adsk.core.DataFile":
+        """Resolve a document name → DataFile from cache (with lazy crawl)."""
+        cache = hub_cache._load_cache()
+        projects = cache.get("projects", {})
+        if project_name not in projects:
+            _crawl_project_main_thread(self.app, project_name, cache)
+            cache["last_updated"] = _now_iso()
+            hub_cache._save_cache(cache)
+        entries = cache.get("projects", {}).get(project_name, {}).get("files", [])
+        file_id = next((e["id"] for e in entries if e["name"] == name), None)
+        if file_id is None:
+            available = [e["name"] for e in entries]
+            raise RuntimeError(
+                f"Document '{name}' not found in project '{project_name}'. "
+                f"Available: {available}"
+            )
+        obj = self.app.data.findObjectById(file_id)
+        if obj is None:
+            raise RuntimeError(
+                f"Hub object '{file_id}' not found — may have been deleted from the hub."
+            )
+        return adsk.core.DataFile.cast(obj)
+
+    def open_document(self, name: str, project_name: str = "Pinchy") -> dict:
+        """Open a saved hub document by name and make it the active document."""
+        data_file = self._find_hub_file(name, project_name)
+        doc = self.app.documents.open(data_file)
+        if doc is None:
+            raise RuntimeError(
+                f"Failed to open '{name}' — Fusion returned null. "
+                "The document may be corrupt or require manual intervention."
+            )
+        doc.activate()
+        return {"opened": True, "name": doc.name, "project": project_name}
+
+    def close_document(self, name: str, save: bool = False) -> dict:
+        """Close a currently open document by name."""
+        target = None
+        for i in range(self.app.documents.count):
+            d = self.app.documents.item(i)
+            if d.name == name:
+                target = d
+                break
+        if target is None:
+            open_names = [
+                self.app.documents.item(i).name
+                for i in range(self.app.documents.count)
+            ]
+            raise RuntimeError(
+                f"Document '{name}' is not open. Open documents: {open_names}"
+            )
+        if save and not target.isSaved:
+            raise RuntimeError(
+                f"Document '{name}' has never been saved — "
+                "use save_as first, then close."
+            )
+        target.close(save)
+        return {"closed": True, "name": name, "saved": save}
+
+    def delete_document(self, name: str, project_name: str = "Pinchy") -> dict:
+        """Permanently delete a hub document. Refuses if the document is currently open."""
+        # Check it's not open right now
+        for i in range(self.app.documents.count):
+            if self.app.documents.item(i).name == name:
+                raise RuntimeError(
+                    f"Cannot delete '{name}': document is currently open. "
+                    "Close it first with close_document."
+                )
+        data_file = self._find_hub_file(name, project_name)
+        if data_file.isInUse:
+            raise RuntimeError(
+                f"Cannot delete '{name}': flagged as in-use by Fusion. "
+                "Close any open references and retry."
+            )
+        data_file.deleteMe()
+        # Evict from cache
+        cache = hub_cache._load_cache()
+        proj_data = cache.get("projects", {}).get(project_name, {})
+        proj_data["files"] = [
+            e for e in proj_data.get("files", []) if e["name"] != name
+        ]
+        cache["last_updated"] = _now_iso()
+        hub_cache._save_cache(cache)
+        return {"deleted": True, "name": name, "project": project_name}
 
     # ------------------------------------------------------------------
     # Design type safety
