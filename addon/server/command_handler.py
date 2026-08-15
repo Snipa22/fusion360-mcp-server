@@ -1063,6 +1063,16 @@ class CommandHandler:
         else:
             ext_input.setDistanceExtent(direction == "negative", dist)
 
+        # For cut/intersect with multiple bodies present, Fusion needs to know which
+        # bodies to operate on — otherwise it throws "No target body found to cut".
+        # Pass all current bodies as participants; Fusion's solver picks the ones that
+        # the profile actually intersects (same behaviour as the UI "Select bodies" step).
+        if operation in ("cut", "intersect") and root.bRepBodies.count > 1:
+            participant_list = [
+                root.bRepBodies.item(i) for i in range(root.bRepBodies.count)
+            ]
+            ext_input.participantBodies = participant_list
+
         feat = ext_feats.add(ext_input)
         return {
             "feature_name": feat.name,
@@ -1985,6 +1995,12 @@ class CommandHandler:
 
         body_count_before = root.bRepBodies.count
 
+        # Snapshot target mass BEFORE the operation so we can detect fake cuts.
+        try:
+            target_mass_before = target.physicalProperties.mass
+        except Exception:
+            target_mass_before = None
+
         combine_feats = root.features.combineFeatures
         tool_coll = adsk.core.ObjectCollection.create()
         tool_coll.add(tool)
@@ -2006,9 +2022,11 @@ class CommandHandler:
 
         body_count_after = root.bRepBodies.count
 
+        # ── No-op detection ──────────────────────────────────────────────────────
         # Fusion's combineFeatures.add() reports "Healthy" even when bodies don't
-        # actually overlap (join/intersect of disjoint solids silently no-ops).
-        # Detect this: a successful join or intersect MUST reduce body count.
+        # actually overlap.
+        #
+        # join/intersect: a real operation MUST reduce body count (tool consumed).
         if operation in ("join", "intersect") and body_count_after >= body_count_before:
             return {
                 "ok": False,
@@ -2026,6 +2044,43 @@ class CommandHandler:
                     f"or move the bodies closer before joining."
                 ),
             }
+
+        # cut: Fusion silently deletes the tool body even when there is ZERO geometric
+        # intersection, fabricating a plausible-looking mass delta equal to the tool's
+        # own mass. We detect this by comparing the target's mass before and after —
+        # a real cut reduces target mass; a fake cut leaves it exactly unchanged.
+        if operation == "cut":
+            target_mass_after = None
+            try:
+                remaining = self._body_by_name(target_body)
+                target_mass_after = remaining.physicalProperties.mass
+            except Exception:
+                pass  # target no longer exists — pathological, but not a fake-cut
+
+            if (
+                target_mass_before is not None
+                and target_mass_after is not None
+                and abs(target_mass_after - target_mass_before) < 1e-6  # unchanged
+            ):
+                return {
+                    "ok": False,
+                    "error_kind": "BOOLEAN_NO_OP",
+                    "feature_name": feat.name,
+                    "operation": "cut",
+                    "target": target_body,
+                    "tool": tool_body,
+                    "body_count_before": body_count_before,
+                    "body_count_after": body_count_after,
+                    "target_mass_before_g": target_mass_before * 1000,
+                    "target_mass_after_g": target_mass_after * 1000,
+                    "error_message": (
+                        "boolean_operation('cut') ran but the target body's mass is "
+                        f"unchanged ({target_mass_before * 1000:.4f}g → "
+                        f"{target_mass_after * 1000:.4f}g). The tool body was consumed "
+                        "but had no geometric intersection with the target — nothing was "
+                        "actually cut. Verify body positions with get_bounding_box."
+                    ),
+                }
 
         return {
             "feature_name": feat.name,
