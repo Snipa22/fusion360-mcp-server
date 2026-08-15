@@ -10,3 +10,7 @@ build/
 *.log
 
 .worktrees
+
+# generated at add-in runtime — write-through cache for list_hub_files
+project_index.json
+project_index.json.tmp

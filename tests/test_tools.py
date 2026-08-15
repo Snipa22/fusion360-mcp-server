@@ -181,6 +181,7 @@ def test_expected_tools_present():
         "list_documents",
         "set_active_document",
         "new_document",
+        "list_hub_files",
     }
     missing = expected - names
     assert not missing, f"Missing tools: {missing}"

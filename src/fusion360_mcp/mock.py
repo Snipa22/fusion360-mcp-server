@@ -1001,6 +1001,33 @@ def _new_document(_p: dict) -> dict:
     return {"created": True, "name": "MockDesign_new"}
 
 
+def _list_hub_files(p: dict) -> dict:
+    project = p.get("project_name", "Pinchy")
+    files = [
+        {
+            "name": "Coupon Holder v3",
+            "id": "mock-file-id-123",
+            "version": 3,
+            "last_modified": "2026-08-10T09:12:00",
+            "description": "PLA test print revision",
+        }
+    ]
+    search = p.get("search")
+    if search:
+        needle = search.lower()
+        files = [
+            f
+            for f in files
+            if needle in f["name"].lower() or needle in f["description"].lower()
+        ]
+    return {
+        "files": files,
+        "project": project,
+        "cached": True,
+        "last_updated": "2026-08-15T14:30:00",
+    }
+
+
 # ── default fallback ─────────────────────────────────────────────────
 
 
@@ -1127,4 +1154,5 @@ _DISPATCH: dict[str, Any] = {
     "list_documents": _list_documents,
     "set_active_document": _set_active_document,
     "new_document": _new_document,
+    "list_hub_files": _list_hub_files,
 }

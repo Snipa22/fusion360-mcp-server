@@ -111,6 +111,7 @@ class TestToolAnnotations:
             "check_solid",
             "get_cylindrical_faces",
             "list_documents",
+            "list_hub_files",
         }
         for t in TOOLS:
             ann = t["annotations"]

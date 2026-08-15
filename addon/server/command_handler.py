@@ -8,10 +8,12 @@ is safe.
 
 import ast
 import base64
+import datetime
 import io
 import math
 import os
 import tempfile
+import threading
 import time
 import traceback
 from contextlib import redirect_stdout
@@ -20,10 +22,105 @@ import adsk.cam
 import adsk.core
 import adsk.fusion
 
-from . import get_logger
+from . import get_logger, hub_cache
 from . import hints as _hints
 
 log = get_logger("handler")
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now().isoformat()
+
+
+# ----------------------------------------------------------------------
+# Hub crawl (adsk-dependent — cannot be unit tested; see hub_cache.py for
+# the pure I/O/filtering logic that backs list_hub_files and *is* tested).
+# ----------------------------------------------------------------------
+
+
+def _crawl_project(
+    app, project_name: str, cache: dict, timeout_s: float = 20.0
+) -> int:
+    """Crawl one project's ``rootFolder.dataFiles``, updating *cache* in
+    place. Runs the actual (network-bound) crawl on a sub-thread and waits
+    up to *timeout_s* so a single slow/hung project can't stall the rest of
+    the background crawl."""
+    done = threading.Event()
+    count = {"n": 0}
+
+    def _do_crawl():
+        try:
+            hub = app.data.activeHub
+            project = None
+            for i in range(hub.dataProjects.count):
+                p = hub.dataProjects.item(i)
+                if p.name == project_name:
+                    project = p
+                    break
+            if project is None:
+                return
+            data_files = project.rootFolder.dataFiles  # network call
+            for i in range(data_files.count):
+                df = data_files.item(i)
+                file_info = {
+                    "name": df.name,
+                    "id": df.id,
+                    "last_modified": df.dateModified.isoformat(),
+                    "description": df.description or "",
+                }
+                try:
+                    file_info["version"] = df.versionNumber
+                except AttributeError:
+                    pass
+                hub_cache._upsert_file_entry(cache, project_name, file_info)
+                count["n"] += 1
+            cache.setdefault("projects", {}).setdefault(project_name, {})[
+                "last_crawled"
+            ] = _now_iso()
+        except Exception:
+            log.error(
+                "list_hub_files: crawl failed for project '%s':\n%s",
+                project_name,
+                traceback.format_exc(),
+            )
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_do_crawl, daemon=True)
+    t.start()
+    done.wait(timeout_s)
+    return count["n"]
+
+
+def _background_crawl(app) -> None:
+    """Background thread entry point: crawl 'Pinchy' first, then the rest.
+    Never run on the main thread — ``dataFiles`` makes a network call."""
+    log.info("list_hub_files: background crawl starting")
+    cache = hub_cache._load_cache()
+
+    try:
+        hub = app.data.activeHub
+        cache["hub"] = hub.name
+        names = [
+            hub.dataProjects.item(i).name for i in range(hub.dataProjects.count)
+        ]
+    except Exception:
+        log.error(
+            "list_hub_files: background crawl failed to enumerate projects:\n%s",
+            traceback.format_exc(),
+        )
+        return
+
+    ordered = sorted(names, key=lambda n: (n != "Pinchy", n))
+
+    for name in ordered:
+        _crawl_project(app, name, cache)
+        cache["last_updated"] = _now_iso()
+        hub_cache._save_cache(cache)
+
+    log.info(
+        "list_hub_files: background crawl complete (%d projects)", len(ordered)
+    )
 
 
 class CommandHandler:
@@ -32,6 +129,10 @@ class CommandHandler:
     def __init__(self):
         self.app = adsk.core.Application.get()
         self.ui = self.app.userInterface
+        t = threading.Thread(
+            target=_background_crawl, args=(self.app,), daemon=True
+        )
+        t.start()
 
     # ------------------------------------------------------------------
     # Dispatch
@@ -231,6 +332,7 @@ class CommandHandler:
                 "list_documents": self.list_documents,
                 "set_active_document": self.set_active_document,
                 "new_document": self.new_document,
+                "list_hub_files": self.list_hub_files,
             }
 
         cmd_type = command.get("type")
@@ -3129,6 +3231,19 @@ class CommandHandler:
                 "Document has never been saved — use save_as(name, project_name) first."
             )
         doc.save(description)
+
+        cache = hub_cache._load_cache()
+        for _pname, pdata in cache.get("projects", {}).items():
+            for entry in pdata.get("files", []):
+                if entry.get("name") == doc.name:
+                    entry["last_modified"] = _now_iso()
+                    entry["version"] = int(entry.get("version") or 1) + 1
+                    if description:
+                        entry["description"] = description
+                    break
+        cache["last_updated"] = _now_iso()
+        hub_cache._save_cache(cache)
+
         return {"saved": True, "name": doc.name, "description": description}
 
     def save_as(
@@ -3152,6 +3267,21 @@ class CommandHandler:
             )
         folder = project.rootFolder
         doc.saveAs(name, folder, description, "")
+
+        cache = hub_cache._load_cache()
+        hub_cache._upsert_file_entry(
+            cache,
+            project_name,
+            {
+                "name": name,
+                "description": description,
+                "last_modified": _now_iso(),
+                "version": 1,
+            },
+        )
+        cache["last_updated"] = _now_iso()
+        hub_cache._save_cache(cache)
+
         return {"saved": True, "name": name, "project": project_name}
 
     def list_documents(self) -> dict:
@@ -3187,6 +3317,15 @@ class CommandHandler:
         )
         doc.activate()
         return {"created": True, "name": doc.name}
+
+    def list_hub_files(
+        self, project_name: str = "Pinchy", search: str = None
+    ) -> dict:
+        """Read-only, instant lookup against the on-disk write-through
+        cache — never calls the (slow, network-bound) Fusion data API."""
+        return hub_cache._build_list_response(
+            project_name=project_name, search=search
+        )
 
     # ------------------------------------------------------------------
     # Health check
