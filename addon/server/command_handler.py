@@ -893,7 +893,7 @@ class CommandHandler:
             "perpendicular": lambda: constraints.addPerpendicular(e1, e2),
             "tangent": lambda: constraints.addTangent(e1, e2),
             "equal": lambda: constraints.addEqual(e1, e2),
-            "fix": lambda: _apply_fix_constraint(e1),
+            "fix": lambda: self._apply_fix_constraint(e1),
             "horizontal": lambda: constraints.addHorizontal(e1),
             "vertical": lambda: constraints.addVertical(e1),
             "concentric": lambda: constraints.addConcentric(e1, e2),
