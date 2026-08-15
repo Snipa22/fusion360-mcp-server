@@ -21,7 +21,13 @@ import adsk.cam
 import adsk.core
 import adsk.fusion
 
-from . import get_logger, hub_cache
+from . import get_logger
+
+# hub_cache lives alongside this file; ensure its directory is importable
+# regardless of how Fusion loaded the add-in (package vs. direct file load).
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hub_cache
 from . import hints as _hints
 
 log = get_logger("handler")
