@@ -2666,7 +2666,11 @@ class CommandHandler:
     def create_parameter(self, name: str, value: float, unit: str, comment: str = None):
         design = self._design()
         params = design.userParameters
-        params.add(name, adsk.core.ValueInput.createByString(f"{value} {unit}"), unit, comment or "")
+        # Build the ValueInput expression.  When unit is blank (dimensionless)
+        # a trailing space in f"{value} {unit}" confuses Fusion's evaluator and
+        # silently produces 0.  Strip to keep the expression clean.
+        expression = f"{value} {unit}".strip() if unit else str(value)
+        params.add(name, adsk.core.ValueInput.createByString(expression), unit, comment or "")
         return {"created": True, "name": name, "value": value, "unit": unit}
 
     def set_parameter(self, name: str, value: float):

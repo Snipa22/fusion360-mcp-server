@@ -15,10 +15,38 @@ import click
 import mcp.types as types
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import BaseModel, ConfigDict
 
 from .connection import get_connection, reset_connection
 from .mock import mock_command
 from .tools import get_tool_by_name, get_tool_list
+
+
+class _PassthroughArgModel(BaseModel):
+    """Pydantic arg-model that accepts any kwargs and passes them through unchanged.
+
+    The default MCPServer.add_tool() infers a schema from the handler's Python
+    signature.  Our handlers use ``arguments: dict`` (a single opaque blob) so MCP
+    would advertise ``{"arguments": {...}}`` to the LLM — forcing the LLM to nest all
+    real params one level deeper.  We want the LLM to call e.g.
+    ``extrude(height=5.0)`` directly, not ``extrude(arguments={"height": 5.0})``.
+
+    The fix: after ``add_tool`` we (a) replace ``tool.parameters`` with the rich
+    per-tool schema from tools.py so the LLM sees the correct fields, and (b) replace
+    ``tool.fn_metadata.arg_model`` with this class so Pydantic accepts any kwargs and
+    wraps them back into the ``arguments`` dict that the real handler expects.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    def model_dump_one_level(self) -> dict:  # called by FuncMetadata
+        # Collect declared fields + extras → wrap as {'arguments': {...}}
+        data: dict = {}
+        for k in self.__class__.model_fields:
+            data[k] = getattr(self, k)
+        if self.__pydantic_extra__:
+            data.update(self.__pydantic_extra__)
+        return {"arguments": data}
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -177,14 +205,24 @@ def main(mode: str, host: str, port: int) -> int:
             return _format_result(tool_name, result)
         return tool_handler
 
-    # Register all tools from the tool registry
+    # Register all tools from the tool registry.
+    #
+    # After add_tool() we patch each registered Tool object so the LLM receives
+    # the rich per-tool schema from tools.py instead of the generic
+    # ``{"arguments": dict}`` schema that MCPServer would infer from our handler
+    # signature.  See _PassthroughArgModel for the full explanation.
     for tool_def in get_tool_list():
         app.add_tool(
             make_tool_handler(tool_def.name),
             name=tool_def.name,
             description=tool_def.description,
-            annotations=tool_def.annotations if hasattr(tool_def, 'annotations') else None,
+            annotations=tool_def.annotations if hasattr(tool_def, "annotations") else None,
         )
+        # Inject the correct per-tool input schema.
+        registered = app._tool_manager.get_tool(tool_def.name)
+        if registered is not None:
+            registered.parameters = tool_def.inputSchema
+            registered.fn_metadata.arg_model = _PassthroughArgModel
 
     # ── resources ────────────────────────────────────────────────────
 
