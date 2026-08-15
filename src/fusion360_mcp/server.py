@@ -221,7 +221,7 @@ def main(mode: str, host: str, port: int) -> int:
         # Inject the correct per-tool input schema.
         registered = app._tool_manager.get_tool(tool_def.name)
         if registered is not None:
-            registered.parameters = tool_def.inputSchema
+            registered.parameters = tool_def.input_schema
             registered.fn_metadata.arg_model = _PassthroughArgModel
 
     # ── resources ────────────────────────────────────────────────────
