@@ -3373,19 +3373,28 @@ class CommandHandler:
             cache["last_updated"] = _now_iso()
             hub_cache._save_cache(cache)
         entries = cache.get("projects", {}).get(project_name, {}).get("files", [])
-        file_id = next((e["id"] for e in entries if e["name"] == name), None)
-        if file_id is None:
+        entry = next((e for e in entries if e["name"] == name), None)
+        if entry is None:
             available = [e["name"] for e in entries]
             raise RuntimeError(
                 f"Document '{name}' not found in project '{project_name}'. "
                 f"Available: {available}"
             )
-        obj = self.app.data.findObjectById(file_id)
-        if obj is None:
+        file_id = entry.get("id")
+        if not file_id:
             raise RuntimeError(
-                f"Hub object '{file_id}' not found — may have been deleted from the hub."
+                f"Document '{name}' has no hub id in the local cache — "
+                "it may not have synced to the cloud yet. "
+                "Wait a moment and try list_hub_files again to refresh."
             )
-        return adsk.core.DataFile.cast(obj)
+        # Correct API: app.data.findFileById (NOT findObjectById — that doesn't exist)
+        df = self.app.data.findFileById(file_id)
+        if df is None:
+            raise RuntimeError(
+                f"Hub file '{file_id}' not found — "
+                "may have been deleted from the hub outside of this session."
+            )
+        return df
 
     def open_document(self, name: str, project_name: str = "Pinchy") -> dict:
         """Open a saved hub document by name and make it the active document."""
