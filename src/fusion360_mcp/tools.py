@@ -2455,6 +2455,36 @@ TOOLS: list[dict] = [
             "properties": {},
         },
     },
+    {
+        "name": "list_hub_files",
+        "title": "List Hub Files",
+        "description": (
+            "List saved files in a Fusion 360 hub project from a local cache. "
+            "Fast — no cloud API call. Cache is populated at add-in startup and "
+            "updated after every save_as/save_document call. "
+            "Default project is 'Pinchy'. Pass search= to filter by name."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_name": {
+                    "type": "string",
+                    "default": "Pinchy",
+                    "description": (
+                        "Project name to list (default: 'Pinchy'). "
+                        "Pass 'all' for all projects."
+                    ),
+                },
+                "search": {
+                    "type": "string",
+                    "description": (
+                        "Optional case-insensitive substring filter on "
+                        "file name/description"
+                    ),
+                },
+            },
+        },
+    },
 ]
 
 # ── tool annotations ──────────────────────────────────────────────────
@@ -2481,6 +2511,7 @@ _READ_ONLY = {
     "check_solid",
     "get_cylindrical_faces",
     "list_documents",
+    "list_hub_files",
 }
 _DESTRUCTIVE = {"delete_all", "delete_parameter"}
 _IDEMPOTENT = {
@@ -2510,6 +2541,7 @@ _IDEMPOTENT = {
     "set_sketch_visibility",
     "hide_all_sketches",
     "set_active_document",
+    "list_hub_files",
 }
 
 for _t in TOOLS:
