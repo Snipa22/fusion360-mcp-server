@@ -3102,6 +3102,38 @@ class CommandHandler:
             )
         return cam_product
 
+    def _get_local_library(self, library_name: str = None):
+        """Get a ToolLibrary from the local library location.
+        
+        If library_name is given (e.g. 'Pinchy'), returns the child library
+        whose URL ends with that name (case-insensitive). If None, returns the
+        first child library found (backwards-compatible default).
+        
+        Raises RuntimeError if no matching library is found.
+        """
+        import adsk.cam
+        libman = adsk.cam.CAMManager.get().libraryManager
+        toolLibs = libman.toolLibraries
+        local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
+        children = toolLibs.childAssetURLs(local_url)
+        if len(children) == 0:
+            raise RuntimeError("No local tool libraries found at LocalLibraryLocation")
+        if library_name is None:
+            return toolLibs.toolLibraryAtURL(children.item(0))
+        # Search by name — URL ends with the library name, e.g. toollibraryroot://Local/Pinchy
+        name_lower = library_name.lower()
+        for i in range(len(children)):
+            url = children.item(i)
+            url_str = str(url)
+            if url_str.rstrip("/").lower().endswith("/" + name_lower):
+                return toolLibs.toolLibraryAtURL(url)
+        # List available for error message
+        available = [str(children.item(i)) for i in range(len(children))]
+        raise RuntimeError(
+            f"Local library '{library_name}' not found. "
+            f"Available: {available}"
+        )
+
     def _find_setup(self, cam, name: str):
         for i in range(cam.setups.count):
             s = cam.setups.item(i)
@@ -3427,6 +3459,7 @@ class CommandHandler:
         product_id: str = "",
         product_link: str = "",
         target: str = "document",
+        library_name: str = None,
     ):
         import adsk.cam, json, uuid as _uuid, math as _math, copy
         import tool_templates as _tt  # imported via sys.path injection
@@ -3438,14 +3471,7 @@ class CommandHandler:
             )
 
         if target == "local":
-            libman = adsk.cam.CAMManager.get().libraryManager
-            toolLibs = libman.toolLibraries
-            local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
-            children = toolLibs.childAssetURLs(local_url)
-            if len(children) == 0:
-                raise RuntimeError("No local tool library found at LocalLibraryLocation")
-            lib_url = children.item(0)
-            lib = toolLibs.toolLibraryAtURL(lib_url)
+            lib = self._get_local_library(library_name)
         else:
             cam = self._get_cam()
             lib = cam.documentToolLibrary
@@ -3626,17 +3652,11 @@ class CommandHandler:
         query: str = None,
         guid: str = None,
         tool_number: int = None,
+        library_name: str = None,
     ) -> dict:
         import adsk.cam, json
 
-        libman = adsk.cam.CAMManager.get().libraryManager
-        toolLibs = libman.toolLibraries
-        local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
-        children = toolLibs.childAssetURLs(local_url)
-        if len(children) == 0:
-            raise RuntimeError("No local tool library found")
-        lib_url = children.item(0)
-        local_lib = toolLibs.toolLibraryAtURL(lib_url)
+        local_lib = self._get_local_library(library_name)
 
         # Find matching tool
         matched = None
@@ -3689,7 +3709,7 @@ class CommandHandler:
             "document_library_count": doc_lib.count,
         }
 
-    def cam_list_libraries(self, location: str = "local", detail: bool = False) -> dict:
+    def cam_list_libraries(self, location: str = "local", detail: bool = False, library_name: str = None) -> dict:
         import adsk.cam, json
 
         LOCATION_MAP = {
@@ -3708,6 +3728,10 @@ class CommandHandler:
         libraries = []
         for i in range(len(children)):
             lib_url = children.item(i)
+            url_str = str(lib_url)
+            # Filter by library_name if provided
+            if library_name and not url_str.rstrip("/").lower().endswith("/" + library_name.lower()):
+                continue
             try:
                 lib = toolLibs.toolLibraryAtURL(lib_url)
                 tools = []
