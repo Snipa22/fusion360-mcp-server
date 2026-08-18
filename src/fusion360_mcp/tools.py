@@ -2336,8 +2336,9 @@ TOOLS: list[dict] = [
                 "taper_angle": {"type": "number", "default": 0.0, "description": "degrees, for tapered/chamfer/dovetail/circle-segment-taper types"},
                 "material": {
                     "type": "string",
-                    "enum": ["carbide", "hss", "ti coated", "cobalt"],
+                    "enum": ["carbide", "hss", "ti coated", "unspecified"],
                     "default": "carbide",
+                    "description": "Tool material (Fusion BMC field). Valid values: carbide, hss, ti coated, unspecified. Note: 'cobalt' is not a valid Fusion value — use 'hss' for cobalt tools.",
                 },
                 "coolant": {
                     "type": "string",

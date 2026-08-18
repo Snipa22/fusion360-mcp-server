@@ -3476,6 +3476,16 @@ class CommandHandler:
             cam = self._get_cam()
             lib = cam.documentToolLibrary
 
+        # Normalize material to valid Fusion BMC values — invalid BMC crashes the socket
+        _BMC_MAP = {
+            "cobalt": "hss",       # cobalt is an HSS variant
+            "ceramic": "carbide",  # closest approximation
+            "cbn": "carbide",
+            "diamond": "carbide",
+            "cermet": "carbide",
+        }
+        material = _BMC_MAP.get(material.lower(), material)
+
         D = float(diameter)
         if shaft_diameter is None:
             shaft_diameter = D
