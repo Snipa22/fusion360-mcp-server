@@ -3442,7 +3442,7 @@ class CommandHandler:
             toolLibs = libman.toolLibraries
             local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
             children = toolLibs.childAssetURLs(local_url)
-            if children.count == 0:
+            if len(children) == 0:
                 raise RuntimeError("No local tool library found at LocalLibraryLocation")
             lib_url = children.item(0)
             lib = toolLibs.toolLibraryAtURL(lib_url)
@@ -3633,7 +3633,7 @@ class CommandHandler:
         toolLibs = libman.toolLibraries
         local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
         children = toolLibs.childAssetURLs(local_url)
-        if children.count == 0:
+        if len(children) == 0:
             raise RuntimeError("No local tool library found")
         lib_url = children.item(0)
         local_lib = toolLibs.toolLibraryAtURL(lib_url)
@@ -3706,7 +3706,7 @@ class CommandHandler:
         children = toolLibs.childAssetURLs(root_url)
 
         libraries = []
-        for i in range(children.count):
+        for i in range(len(children)):
             lib_url = children.item(i)
             try:
                 lib = toolLibs.toolLibraryAtURL(lib_url)
