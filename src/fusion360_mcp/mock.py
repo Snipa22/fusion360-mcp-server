@@ -959,6 +959,37 @@ def _cam_get_operation_info(p: dict) -> dict:
     }
 
 
+def _cam_create_tool(p: dict) -> dict:
+    import math
+    D = p.get("diameter", 6.0)
+    tool_type = p.get("tool_type", "flat end mill")
+    flutes = p.get("flutes", 2)
+    spindle_speed = p.get("spindle_speed", 5000.0)
+    feed_rate = p.get("feed_rate") or round(spindle_speed * flutes * D * 0.01, 1)
+    return {
+        "created": True,
+        "description": p.get("description") or f"{D}mm {tool_type}",
+        "tool_number": p.get("tool_number", 1),
+        "tool_type": tool_type,
+        "diameter_mm": D,
+        "flutes": flutes,
+        "spindle_speed": spindle_speed,
+        "feed_rate": feed_rate,
+        "plunge_rate": round(feed_rate * 0.3, 1),
+        "library_count": 1,
+        "guid": "mock-guid-00000000",
+    }
+
+
+def _cam_list_tools(_p: dict) -> dict:
+    return {
+        "count": 1,
+        "tools": [{"index": 0, "description": "6mm flat end mill", "type": "flat end mill",
+                   "diameter_mm": 6.0, "unit": "millimeters", "tool_number": 1,
+                   "flutes": 2, "material": "carbide", "guid": "mock-guid-00000000"}],
+    }
+
+
 # ── perception (viewport render) ─────────────────────────────────────
 
 # 1x1 transparent PNG, enough to exercise the image-content code path.
@@ -1182,6 +1213,8 @@ _DISPATCH: dict[str, Any] = {
     "cam_list_setups": _cam_list_setups,
     "cam_list_operations": _cam_list_operations,
     "cam_get_operation_info": _cam_get_operation_info,
+    "cam_create_tool": _cam_create_tool,
+    "cam_list_tools": _cam_list_tools,
     # design type safety
     "get_design_type": _get_design_type,
     "set_design_type": _set_design_type,

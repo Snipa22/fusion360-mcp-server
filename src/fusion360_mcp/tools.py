@@ -2295,6 +2295,56 @@ TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "name": "cam_create_tool",
+        "title": "Create CAM Tool",
+        "description": (
+            "Create a cutting tool and add it to the document's CAM tool library. "
+            "After calling this, use the returned tool_number with cam_create_operation. "
+            "Supports: drill, flat end mill, ball end mill, bull nose end mill."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["tool_type", "diameter"],
+            "properties": {
+                "tool_type": {
+                    "type": "string",
+                    "enum": ["drill", "flat end mill", "ball end mill", "bull nose end mill"],
+                },
+                "diameter": {"type": "number", "description": "Cutting diameter in mm"},
+                "description": {"type": "string", "description": "Human-readable name (auto-generated if omitted)"},
+                "tool_number": {"type": "integer", "default": 1, "description": "Post-process tool number (T1, T2, ...)"},
+                "flutes": {"type": "integer", "default": 2},
+                "overall_length": {"type": "number", "description": "mm, auto-computed if omitted"},
+                "flute_length": {"type": "number", "description": "mm, auto-computed if omitted"},
+                "shaft_diameter": {"type": "number", "description": "mm, defaults to diameter"},
+                "corner_radius": {"type": "number", "default": 0.0, "description": "mm, bull nose radius"},
+                "tip_angle": {"type": "number", "default": 118.0, "description": "Drill point angle in degrees"},
+                "material": {
+                    "type": "string",
+                    "enum": ["carbide", "hss", "ti coated", "cobalt"],
+                    "default": "carbide",
+                },
+                "coolant": {
+                    "type": "string",
+                    "enum": ["flood", "mist", "through", "disabled"],
+                    "default": "flood",
+                },
+                "spindle_speed": {"type": "number", "default": 5000.0, "description": "RPM"},
+                "feed_rate": {"type": "number", "description": "mm/min cutting feed; auto-computed if omitted"},
+                "plunge_rate": {"type": "number", "description": "mm/min plunge feed; defaults to feed_rate * 0.3"},
+                "vendor": {"type": "string", "default": ""},
+                "product_id": {"type": "string", "default": ""},
+                "product_link": {"type": "string", "default": ""},
+            },
+        },
+    },
+    {
+        "name": "cam_list_tools",
+        "title": "List CAM Tools",
+        "description": "List all tools in the document's CAM tool library with diameter, type, and tool number.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
     # ── health ───────────────────────────────────────────────────────
     {
         "name": "ping",
@@ -2587,6 +2637,7 @@ _READ_ONLY = {
     "cam_list_setups",
     "cam_list_operations",
     "cam_get_operation_info",
+    "cam_list_tools",
     "get_design_type",
     "render_view",
     "point_containment",
@@ -2612,6 +2663,7 @@ _IDEMPOTENT = {
     "cam_list_setups",
     "cam_list_operations",
     "cam_get_operation_info",
+    "cam_list_tools",
     "get_design_type",
     "set_design_type",
     "rename_body",

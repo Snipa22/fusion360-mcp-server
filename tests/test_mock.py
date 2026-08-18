@@ -935,6 +935,32 @@ class TestMockCAM:
         assert "tool_diameter" in result
         assert "has_toolpath" in result
 
+    def test_cam_create_tool(self):
+        result = mock_command(
+            "cam_create_tool",
+            {"tool_type": "flat end mill", "diameter": 6.0, "flutes": 2},
+        )
+        assert result["created"] is True
+        assert result["diameter_mm"] == 6.0
+        assert result["tool_type"] == "flat end mill"
+        assert "tool_number" in result
+        assert "guid" in result
+
+    def test_cam_create_tool_drill(self):
+        result = mock_command(
+            "cam_create_tool",
+            {"tool_type": "drill", "diameter": 5.5, "tool_number": 1},
+        )
+        assert result["created"] is True
+        assert result["diameter_mm"] == 5.5
+        assert result["tool_type"] == "drill"
+
+    def test_cam_list_tools(self):
+        result = mock_command("cam_list_tools")
+        assert "tools" in result
+        assert result["count"] >= 1
+        assert "diameter_mm" in result["tools"][0]
+
 
 class TestMockDesignTypeSafety:
     def test_get_design_type(self):

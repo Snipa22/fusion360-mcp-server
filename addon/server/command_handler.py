@@ -331,6 +331,8 @@ class CommandHandler:
                 "cam_create_operation": self.cam_create_operation,
                 "cam_generate_toolpath": self.cam_generate_toolpath,
                 "cam_post_process": self.cam_post_process,
+                "cam_create_tool": self.cam_create_tool,
+                "cam_list_tools": self.cam_list_tools,
                 # health
                 "ping": self.ping,
                 # design type safety
@@ -3400,6 +3402,196 @@ class CommandHandler:
         result["output_file"] = output_file
         result["file_written"] = output_file is not None
         return result
+
+    def cam_create_tool(
+        self,
+        tool_type: str,
+        diameter: float,
+        description: str = None,
+        tool_number: int = 1,
+        flutes: int = 2,
+        overall_length: float = None,
+        flute_length: float = None,
+        shaft_diameter: float = None,
+        corner_radius: float = 0.0,
+        tip_angle: float = 118.0,
+        material: str = "carbide",
+        coolant: str = "flood",
+        spindle_speed: float = 5000.0,
+        feed_rate: float = None,
+        plunge_rate: float = None,
+        vendor: str = "",
+        product_id: str = "",
+        product_link: str = "",
+    ):
+        import adsk.cam, json, uuid as _uuid, math as _math
+
+        cam = self._get_cam()
+        lib = cam.documentToolLibrary
+
+        # --- Defaults ---
+        D = diameter  # mm
+        if shaft_diameter is None:
+            shaft_diameter = D
+        if overall_length is None:
+            # rule of thumb: drill=25*D, endmill=10*D, min 20mm
+            if tool_type == "drill":
+                overall_length = max(20.0, D * 25)
+            else:
+                overall_length = max(20.0, D * 10)
+        if flute_length is None:
+            if tool_type == "drill":
+                flute_length = overall_length * 0.6
+            else:
+                flute_length = D * 3
+        body_length = overall_length  # same for simple tools
+        shoulder_length = flute_length
+
+        # --- Surface speed based computed feed ---
+        if feed_rate is None:
+            # conservative defaults for carbide in aluminium
+            if tool_type == "drill":
+                feed_rate = spindle_speed * (D * _math.pi / 1000) * 0.04  # fpr=0.04mm
+            else:
+                feed_rate = spindle_speed * flutes * (D * 0.01)  # fpt=D*0.01
+            feed_rate = round(feed_rate, 1)
+        if plunge_rate is None:
+            plunge_rate = round(feed_rate * 0.3, 1)
+
+        v_c = round(_math.pi * D * spindle_speed / 1000, 4)  # surface speed m/min
+
+        if description is None:
+            description = f"{D}mm {tool_type}"
+
+        # --- Build JSON from proven template ---
+        tool_json = {
+            "BMC": material,
+            "GRADE": "generic",
+            "description": description,
+            "expressions": {
+                "tool_description": f"'{description}'",
+                "tool_diameter": f"{D} mm",
+                "tool_material": f"'{material}'",
+            },
+            "geometry": {
+                "CSP": False,
+                "DC": D,
+                "HAND": True,
+                "LB": body_length,
+                "LCF": flute_length,
+                "NOF": flutes,
+                "NT": 1,
+                "OAL": overall_length,
+                "RE": corner_radius,
+                "SFDM": shaft_diameter,
+                "SIG": tip_angle,
+                "TP": 0,
+                "assemblyGaugeLength": overall_length,
+                "shoulder-length": shoulder_length,
+                "thread-profile-angle": 60,
+                "tip-diameter": 0,
+                "tip-length": 0,
+                "tip-offset": 0,
+            },
+            "guid": str(_uuid.uuid4()),
+            "post-process": {
+                "break-control": False,
+                "comment": "",
+                "diameter-offset": 1,
+                "length-offset": 1,
+                "live": True,
+                "manual-tool-change": False,
+                "number": tool_number,
+                "turret": 0,
+            },
+            "product-id": product_id,
+            "product-link": product_link,
+            "start-values": {
+                "presets": [{
+                    "description": "",
+                    "f_z": round(feed_rate / (spindle_speed * flutes), 6) if tool_type != "drill" else 0,
+                    "guid": str(_uuid.uuid4()),
+                    "material": {"category": "all", "query": "", "use-hardness": False},
+                    "n": spindle_speed,
+                    "n_ramp": spindle_speed,
+                    "name": "Default preset",
+                    "tool-coolant": coolant,
+                    "use-feed-per-revolution": False,
+                    "v_c": v_c,
+                    "v_f": feed_rate,
+                    "v_f_leadIn": feed_rate,
+                    "v_f_leadOut": feed_rate,
+                    "v_f_plunge": plunge_rate,
+                    "v_f_ramp": plunge_rate,
+                    "v_f_retract": plunge_rate,
+                    "v_f_transition": feed_rate,
+                }]
+            },
+            "type": tool_type,
+            "unit": "millimeters",
+            "vendor": vendor,
+        }
+
+        # For ball end mill: set RE = D/2
+        if tool_type == "ball end mill":
+            tool_json["geometry"]["RE"] = D / 2
+
+        # Create and add
+        new_tool = adsk.cam.Tool.createFromJson(json.dumps(tool_json))
+        if new_tool is None:
+            raise RuntimeError("Tool.createFromJson returned None — JSON schema may be invalid")
+
+        ok = lib.add(new_tool)
+        if not ok:
+            raise RuntimeError("lib.add() returned False — tool could not be added to library")
+
+        # Verify by finding the tool we just added (match by guid)
+        added_guid = tool_json["guid"]
+        added_tool = None
+        for i in range(lib.count):
+            t = lib.item(i)
+            tj = json.loads(t.toJson())
+            if tj.get("guid") == added_guid:
+                added_tool = t
+                break
+
+        # Get the post-process number from the added tool
+        added_number = tool_number  # fallback
+
+        return {
+            "created": True,
+            "description": description,
+            "tool_number": added_number,
+            "tool_type": tool_type,
+            "diameter_mm": D,
+            "flutes": flutes,
+            "spindle_speed": spindle_speed,
+            "feed_rate": feed_rate,
+            "plunge_rate": plunge_rate,
+            "library_count": lib.count,
+            "guid": added_guid,
+        }
+
+    def cam_list_tools(self) -> dict:
+        import adsk.cam, json
+        cam = self._get_cam()
+        lib = cam.documentToolLibrary
+        tools = []
+        for i in range(lib.count):
+            t = lib.item(i)
+            tj = json.loads(t.toJson())
+            tools.append({
+                "index": i,
+                "description": t.description,
+                "type": tj.get("type"),
+                "diameter_mm": tj.get("geometry", {}).get("DC"),
+                "unit": tj.get("unit"),
+                "tool_number": tj.get("post-process", {}).get("number"),
+                "flutes": tj.get("geometry", {}).get("NOF"),
+                "material": tj.get("BMC"),
+                "guid": tj.get("guid"),
+            })
+        return {"count": lib.count, "tools": tools}
 
     # ------------------------------------------------------------------
     # Document management

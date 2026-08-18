@@ -105,6 +105,7 @@ class TestToolAnnotations:
             "cam_list_setups",
             "cam_list_operations",
             "cam_get_operation_info",
+            "cam_list_tools",
             "get_design_type",
             "render_view",
             "point_containment",
