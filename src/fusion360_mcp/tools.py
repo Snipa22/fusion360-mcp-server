@@ -2350,6 +2350,12 @@ TOOLS: list[dict] = [
                 "vendor": {"type": "string", "default": ""},
                 "product_id": {"type": "string", "default": ""},
                 "product_link": {"type": "string", "default": ""},
+                "target": {
+                    "type": "string",
+                    "enum": ["document", "local"],
+                    "default": "document",
+                    "description": "Where to add the tool: 'document' = current document only (default), 'local' = persistent local library reusable across all documents",
+                },
             },
         },
     },
@@ -2358,6 +2364,48 @@ TOOLS: list[dict] = [
         "title": "List CAM Tools",
         "description": "List all tools in the document's CAM tool library with diameter, type, and tool number.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cam_import_tool",
+        "title": "Import Tool from Library",
+        "description": (
+            "Find a tool in the local persistent tool library and import it into the "
+            "current document so it can be used with cam_create_operation. "
+            "Use cam_list_libraries(location='local') first to see what's available."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Substring to match in tool description (case-insensitive)"},
+                "guid": {"type": "string", "description": "Exact tool GUID"},
+                "tool_number": {"type": "integer", "description": "Override the tool number in the document (T1, T2, ...)"},
+            },
+        },
+    },
+    {
+        "name": "cam_list_libraries",
+        "title": "List CAM Tool Libraries",
+        "description": (
+            "List available CAM tool libraries and their contents. "
+            "Use location='local' to see Alex's persistent tools, "
+            "'samples' to see Autodesk's built-in library, "
+            "'cloud' for cloud-shared tools."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "enum": ["local", "cloud", "samples"],
+                    "default": "local",
+                },
+                "detail": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, include per-tool details (slower for large libraries)",
+                },
+            },
+        },
     },
     # ── health ───────────────────────────────────────────────────────
     {

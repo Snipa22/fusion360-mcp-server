@@ -333,6 +333,8 @@ class CommandHandler:
                 "cam_post_process": self.cam_post_process,
                 "cam_create_tool": self.cam_create_tool,
                 "cam_list_tools": self.cam_list_tools,
+                "cam_import_tool": self.cam_import_tool,
+                "cam_list_libraries": self.cam_list_libraries,
                 # health
                 "ping": self.ping,
                 # design type safety
@@ -3424,6 +3426,7 @@ class CommandHandler:
         vendor: str = "",
         product_id: str = "",
         product_link: str = "",
+        target: str = "document",
     ):
         import adsk.cam, json, uuid as _uuid, math as _math, copy
         import tool_templates as _tt  # imported via sys.path injection
@@ -3434,8 +3437,18 @@ class CommandHandler:
                 f"Supported: {sorted(_tt.GEOMETRY_TEMPLATES.keys())}"
             )
 
-        cam = self._get_cam()
-        lib = cam.documentToolLibrary
+        if target == "local":
+            libman = adsk.cam.CAMManager.get().libraryManager
+            toolLibs = libman.toolLibraries
+            local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
+            children = toolLibs.childAssetURLs(local_url)
+            if children.count == 0:
+                raise RuntimeError("No local tool library found at LocalLibraryLocation")
+            lib_url = children.item(0)
+            lib = toolLibs.toolLibraryAtURL(lib_url)
+        else:
+            cam = self._get_cam()
+            lib = cam.documentToolLibrary
 
         D = float(diameter)
         if shaft_diameter is None:
@@ -3574,6 +3587,7 @@ class CommandHandler:
         added_guid = tool_json["guid"]
         return {
             "created": True,
+            "target": target,
             "description": description,
             "tool_number": tool_number,
             "tool_type": tool_type,
@@ -3606,6 +3620,123 @@ class CommandHandler:
                 "guid": tj.get("guid"),
             })
         return {"count": lib.count, "tools": tools}
+
+    def cam_import_tool(
+        self,
+        query: str = None,
+        guid: str = None,
+        tool_number: int = None,
+    ) -> dict:
+        import adsk.cam, json
+
+        libman = adsk.cam.CAMManager.get().libraryManager
+        toolLibs = libman.toolLibraries
+        local_url = toolLibs.urlByLocation(adsk.cam.LibraryLocations.LocalLibraryLocation)
+        children = toolLibs.childAssetURLs(local_url)
+        if children.count == 0:
+            raise RuntimeError("No local tool library found")
+        lib_url = children.item(0)
+        local_lib = toolLibs.toolLibraryAtURL(lib_url)
+
+        # Find matching tool
+        matched = None
+        for i in range(local_lib.count):
+            t = local_lib.item(i)
+            tj = json.loads(t.toJson())
+            if guid and tj.get("guid") == guid:
+                matched = (t, tj)
+                break
+            if query and query.lower() in t.description.lower():
+                matched = (t, tj)
+                break
+
+        if matched is None:
+            raise RuntimeError(
+                f"No tool found matching query={query!r} guid={guid!r} "
+                f"in local library ({local_lib.count} tools)"
+            )
+
+        t, tj = matched
+
+        # If tool_number override, patch the JSON before adding to document
+        if tool_number is not None:
+            import uuid as _uuid
+            tj_copy = dict(tj)
+            tj_copy["post-process"] = dict(tj.get("post-process", {}))
+            tj_copy["post-process"]["number"] = tool_number
+            tj_copy["guid"] = str(_uuid.uuid4())   # new guid to avoid collision
+            new_tool = adsk.cam.Tool.createFromJson(json.dumps(tj_copy))
+        else:
+            new_tool = adsk.cam.Tool.createFromJson(t.toJson())
+
+        if new_tool is None:
+            raise RuntimeError("Tool.createFromJson returned None during import")
+
+        cam = self._get_cam()
+        doc_lib = cam.documentToolLibrary
+        ok = doc_lib.add(new_tool)
+        if not ok:
+            raise RuntimeError("lib.add() returned False")
+
+        result_tj = tj if tool_number is None else tj_copy
+        return {
+            "imported": True,
+            "description": t.description,
+            "tool_number": result_tj.get("post-process", {}).get("number"),
+            "tool_type": tj.get("type"),
+            "diameter_mm": tj.get("geometry", {}).get("DC"),
+            "guid": result_tj.get("guid"),
+            "document_library_count": doc_lib.count,
+        }
+
+    def cam_list_libraries(self, location: str = "local", detail: bool = False) -> dict:
+        import adsk.cam, json
+
+        LOCATION_MAP = {
+            "local": adsk.cam.LibraryLocations.LocalLibraryLocation,
+            "cloud": adsk.cam.LibraryLocations.CloudLibraryLocation,
+            "samples": adsk.cam.LibraryLocations.Fusion360LibraryLocation,
+        }
+        if location not in LOCATION_MAP:
+            raise RuntimeError(f"Unknown location '{location}'. Use: local, cloud, samples")
+
+        libman = adsk.cam.CAMManager.get().libraryManager
+        toolLibs = libman.toolLibraries
+        root_url = toolLibs.urlByLocation(LOCATION_MAP[location])
+        children = toolLibs.childAssetURLs(root_url)
+
+        libraries = []
+        for i in range(children.count):
+            lib_url = children.item(i)
+            try:
+                lib = toolLibs.toolLibraryAtURL(lib_url)
+                tools = []
+                if detail:
+                    for j in range(lib.count):
+                        t = lib.item(j)
+                        tj = json.loads(t.toJson())
+                        tools.append({
+                            "index": j,
+                            "description": t.description,
+                            "type": tj.get("type"),
+                            "diameter_mm": tj.get("geometry", {}).get("DC"),
+                            "unit": tj.get("unit"),
+                            "tool_number": tj.get("post-process", {}).get("number"),
+                            "guid": tj.get("guid"),
+                        })
+                libraries.append({
+                    "url": str(lib_url),
+                    "count": lib.count,
+                    "tools": tools,
+                })
+            except Exception as e:
+                libraries.append({"url": str(lib_url), "error": str(e)})
+
+        return {
+            "location": location,
+            "library_count": len(libraries),
+            "libraries": libraries,
+        }
 
     # ------------------------------------------------------------------
     # Document management

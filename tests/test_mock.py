@@ -977,6 +977,26 @@ class TestMockCAM:
         assert result["count"] >= 1
         assert "diameter_mm" in result["tools"][0]
 
+    def test_cam_import_tool(self):
+        result = mock_command("cam_import_tool", {"query": "6mm flat"})
+        assert result["imported"] is True
+        assert "description" in result
+        assert "tool_number" in result
+
+    def test_cam_list_libraries(self):
+        result = mock_command("cam_list_libraries", {"location": "local"})
+        assert result["location"] == "local"
+        assert result["library_count"] >= 1
+        assert "libraries" in result
+
+    def test_cam_create_tool_local_target(self):
+        result = mock_command(
+            "cam_create_tool",
+            {"tool_type": "flat end mill", "diameter": 6.0, "target": "local"},
+        )
+        assert result["created"] is True
+        assert result["target"] == "local"
+
 
 class TestMockDesignTypeSafety:
     def test_get_design_type(self):

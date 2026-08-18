@@ -968,6 +968,7 @@ def _cam_create_tool(p: dict) -> dict:
     feed_rate = p.get("feed_rate") or round(spindle_speed * flutes * D * 0.01, 1)
     return {
         "created": True,
+        "target": p.get("target", "document"),
         "description": p.get("description") or f"{D}mm {tool_type}",
         "tool_number": p.get("tool_number", 1),
         "tool_type": tool_type,
@@ -987,6 +988,30 @@ def _cam_list_tools(_p: dict) -> dict:
         "tools": [{"index": 0, "description": "6mm flat end mill", "type": "flat end mill",
                    "diameter_mm": 6.0, "unit": "millimeters", "tool_number": 1,
                    "flutes": 2, "material": "carbide", "guid": "mock-guid-00000000"}],
+    }
+
+
+def _cam_import_tool(p: dict) -> dict:
+    return {
+        "imported": True,
+        "description": p.get("query", "6mm flat end mill"),
+        "tool_number": p.get("tool_number", 1),
+        "tool_type": "flat end mill",
+        "diameter_mm": 6.0,
+        "guid": "mock-local-guid-00000001",
+        "document_library_count": 2,
+    }
+
+
+def _cam_list_libraries(p: dict) -> dict:
+    return {
+        "location": p.get("location", "local"),
+        "library_count": 1,
+        "libraries": [{
+            "url": "toollibraryroot://Local/Library",
+            "count": 35,
+            "tools": [],
+        }],
     }
 
 
@@ -1215,6 +1240,8 @@ _DISPATCH: dict[str, Any] = {
     "cam_get_operation_info": _cam_get_operation_info,
     "cam_create_tool": _cam_create_tool,
     "cam_list_tools": _cam_list_tools,
+    "cam_import_tool": _cam_import_tool,
+    "cam_list_libraries": _cam_list_libraries,
     # design type safety
     "get_design_type": _get_design_type,
     "set_design_type": _set_design_type,

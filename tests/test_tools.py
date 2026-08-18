@@ -170,6 +170,8 @@ def test_expected_tools_present():
         "cam_get_operation_info",
         "cam_create_tool",
         "cam_list_tools",
+        "cam_import_tool",
+        "cam_list_libraries",
         # design type safety
         "get_design_type",
         "set_design_type",
