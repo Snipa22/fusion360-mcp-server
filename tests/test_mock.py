@@ -955,6 +955,22 @@ class TestMockCAM:
         assert result["diameter_mm"] == 5.5
         assert result["tool_type"] == "drill"
 
+    def test_cam_create_tool_turning(self):
+        result = mock_command(
+            "cam_create_tool",
+            {"tool_type": "turning general", "diameter": 10.0},
+        )
+        assert result["created"] is True
+        assert result["tool_type"] == "turning general"
+
+    def test_cam_create_tool_unknown_type(self):
+        # Mock doesn't validate — just check it returns something
+        result = mock_command(
+            "cam_create_tool",
+            {"tool_type": "flat end mill", "diameter": 3.0, "flutes": 3},
+        )
+        assert result["created"] is True
+
     def test_cam_list_tools(self):
         result = mock_command("cam_list_tools")
         assert "tools" in result

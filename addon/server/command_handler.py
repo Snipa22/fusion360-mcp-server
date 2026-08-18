@@ -3415,6 +3415,7 @@ class CommandHandler:
         shaft_diameter: float = None,
         corner_radius: float = 0.0,
         tip_angle: float = 118.0,
+        taper_angle: float = 0.0,
         material: str = "carbide",
         coolant: str = "flood",
         spindle_speed: float = 5000.0,
@@ -3424,46 +3425,96 @@ class CommandHandler:
         product_id: str = "",
         product_link: str = "",
     ):
-        import adsk.cam, json, uuid as _uuid, math as _math
+        import adsk.cam, json, uuid as _uuid, math as _math, copy
+        import tool_templates as _tt  # imported via sys.path injection
+
+        if tool_type not in _tt.GEOMETRY_TEMPLATES:
+            raise RuntimeError(
+                f"Unknown tool_type '{tool_type}'. "
+                f"Supported: {sorted(_tt.GEOMETRY_TEMPLATES.keys())}"
+            )
 
         cam = self._get_cam()
         lib = cam.documentToolLibrary
 
-        # --- Defaults ---
-        D = diameter  # mm
+        D = float(diameter)
         if shaft_diameter is None:
             shaft_diameter = D
+
+        # --- Compute dimensions ---
         if overall_length is None:
-            # rule of thumb: drill=25*D, endmill=10*D, min 20mm
             if tool_type == "drill":
                 overall_length = max(20.0, D * 25)
+            elif tool_type in _tt.FAMILY_TURNING or tool_type in _tt.FAMILY_JET:
+                overall_length = 30.0  # sensible default for non-rotary
             else:
                 overall_length = max(20.0, D * 10)
         if flute_length is None:
-            if tool_type == "drill":
+            if tool_type in _tt.FAMILY_ROTARY:
                 flute_length = overall_length * 0.6
             else:
-                flute_length = D * 3
-        body_length = overall_length  # same for simple tools
+                flute_length = overall_length * 0.4
+
+        body_length = overall_length * 0.5
         shoulder_length = flute_length
 
-        # --- Surface speed based computed feed ---
-        if feed_rate is None:
-            # conservative defaults for carbide in aluminium
-            if tool_type == "drill":
-                feed_rate = spindle_speed * (D * _math.pi / 1000) * 0.04  # fpr=0.04mm
-            else:
-                feed_rate = spindle_speed * flutes * (D * 0.01)  # fpt=D*0.01
-            feed_rate = round(feed_rate, 1)
-        if plunge_rate is None:
-            plunge_rate = round(feed_rate * 0.3, 1)
-
-        v_c = round(_math.pi * D * spindle_speed / 1000, 4)  # surface speed m/min
+        # --- Feeds/speeds ---
+        if tool_type in _tt.FAMILY_ROTARY:
+            v_c = round(_math.pi * D * spindle_speed / 1000, 4)
+            if feed_rate is None:
+                if tool_type == "drill":
+                    feed_rate = round(spindle_speed * D * _math.pi / 1000 * 0.04, 1)
+                else:
+                    feed_rate = round(spindle_speed * flutes * D * 0.01, 1)
+            if plunge_rate is None:
+                plunge_rate = round(feed_rate * 0.3, 1)
+            f_z = round(feed_rate / (spindle_speed * max(flutes, 1)), 6) if tool_type != "drill" else 0
+        else:
+            v_c = 0; feed_rate = feed_rate or 0; plunge_rate = plunge_rate or 0; f_z = 0
 
         if description is None:
             description = f"{D}mm {tool_type}"
 
-        # --- Build JSON from proven template ---
+        # --- Build geometry from template ---
+        geom = copy.deepcopy(_tt.GEOMETRY_TEMPLATES[tool_type])
+
+        if tool_type in _tt.FAMILY_ROTARY:
+            geom["DC"] = D
+            geom["SFDM"] = shaft_diameter
+            geom["LCF"] = flute_length
+            geom["LB"] = body_length
+            geom["OAL"] = overall_length
+            geom["assemblyGaugeLength"] = body_length
+            geom["NOF"] = flutes
+            geom["shoulder-length"] = shoulder_length
+            if "RE" in geom and corner_radius is not None:
+                geom["RE"] = corner_radius
+                # ball end mill: RE = D/2 by default
+                if tool_type == "ball end mill" and corner_radius == 0.0:
+                    geom["RE"] = D / 2
+            if "SIG" in geom:
+                geom["SIG"] = tip_angle
+            if "TA" in geom and taper_angle:
+                geom["TA"] = taper_angle
+            if "shoulder-diameter" in geom:
+                geom["shoulder-diameter"] = shaft_diameter
+            if "DCX" in geom:
+                geom["DCX"] = D
+            if "tip-diameter" in geom and geom["tip-diameter"] != 0:
+                # scale tip-diameter proportionally
+                ratio = geom["tip-diameter"] / _tt.GEOMETRY_TEMPLATES[tool_type].get("DC", 1)
+                geom["tip-diameter"] = round(D * ratio, 4)
+
+        elif tool_type in _tt.FAMILY_TURNING:
+            # Turning insert — diameter maps to INSD (insert diameter/size)
+            geom["INSD"] = D
+            geom["OAL"] = overall_length
+
+        elif tool_type in _tt.FAMILY_JET:
+            # Jet — diameter maps to CW (kerf width)
+            geom["CW"] = D
+
+        # --- Build full JSON ---
         tool_json = {
             "BMC": material,
             "GRADE": "generic",
@@ -3473,26 +3524,7 @@ class CommandHandler:
                 "tool_diameter": f"{D} mm",
                 "tool_material": f"'{material}'",
             },
-            "geometry": {
-                "CSP": False,
-                "DC": D,
-                "HAND": True,
-                "LB": body_length,
-                "LCF": flute_length,
-                "NOF": flutes,
-                "NT": 1,
-                "OAL": overall_length,
-                "RE": corner_radius,
-                "SFDM": shaft_diameter,
-                "SIG": tip_angle,
-                "TP": 0,
-                "assemblyGaugeLength": overall_length,
-                "shoulder-length": shoulder_length,
-                "thread-profile-angle": 60,
-                "tip-diameter": 0,
-                "tip-length": 0,
-                "tip-offset": 0,
-            },
+            "geometry": geom,
             "guid": str(_uuid.uuid4()),
             "post-process": {
                 "break-control": False,
@@ -3509,7 +3541,7 @@ class CommandHandler:
             "start-values": {
                 "presets": [{
                     "description": "",
-                    "f_z": round(feed_rate / (spindle_speed * flutes), 6) if tool_type != "drill" else 0,
+                    "f_z": f_z,
                     "guid": str(_uuid.uuid4()),
                     "material": {"category": "all", "query": "", "use-hardness": False},
                     "n": spindle_speed,
@@ -3532,36 +3564,18 @@ class CommandHandler:
             "vendor": vendor,
         }
 
-        # For ball end mill: set RE = D/2
-        if tool_type == "ball end mill":
-            tool_json["geometry"]["RE"] = D / 2
-
-        # Create and add
         new_tool = adsk.cam.Tool.createFromJson(json.dumps(tool_json))
         if new_tool is None:
-            raise RuntimeError("Tool.createFromJson returned None — JSON schema may be invalid")
-
+            raise RuntimeError("Tool.createFromJson returned None — geometry may be invalid for this type")
         ok = lib.add(new_tool)
         if not ok:
-            raise RuntimeError("lib.add() returned False — tool could not be added to library")
+            raise RuntimeError("lib.add() returned False")
 
-        # Verify by finding the tool we just added (match by guid)
         added_guid = tool_json["guid"]
-        added_tool = None
-        for i in range(lib.count):
-            t = lib.item(i)
-            tj = json.loads(t.toJson())
-            if tj.get("guid") == added_guid:
-                added_tool = t
-                break
-
-        # Get the post-process number from the added tool
-        added_number = tool_number  # fallback
-
         return {
             "created": True,
             "description": description,
-            "tool_number": added_number,
+            "tool_number": tool_number,
             "tool_type": tool_type,
             "diameter_mm": D,
             "flutes": flutes,

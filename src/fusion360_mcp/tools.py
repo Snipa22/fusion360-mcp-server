@@ -2301,7 +2301,11 @@ TOOLS: list[dict] = [
         "description": (
             "Create a cutting tool and add it to the document's CAM tool library. "
             "After calling this, use the returned tool_number with cam_create_operation. "
-            "Supports: drill, flat end mill, ball end mill, bull nose end mill."
+            "Supports any Fusion 360 tool type string, e.g.: drill, flat end mill, "
+            "ball end mill, bull nose end mill, chamfer mill, face mill, spot drill, "
+            "center drill, tapered mill, radius mill, dovetail mill, lollipop mill, "
+            "slot mill, thread mill, boring bar, counter bore, counter sink, reamer, "
+            "tap right hand, tap left hand, probe, and others."
         ),
         "inputSchema": {
             "type": "object",
@@ -2309,7 +2313,16 @@ TOOLS: list[dict] = [
             "properties": {
                 "tool_type": {
                     "type": "string",
-                    "enum": ["drill", "flat end mill", "ball end mill", "bull nose end mill"],
+                    "description": (
+                        "Fusion 360 tool type. Supported: "
+                        "drill, flat end mill, ball end mill, bull nose end mill, chamfer mill, face mill, "
+                        "tapered mill, radius mill, dovetail mill, lollipop mill, slot mill, thread mill, "
+                        "boring bar, counter bore, counter sink, spot drill, center drill, reamer, "
+                        "tap right hand, tap left hand, probe, "
+                        "circle segment barrel, circle segment lens, circle segment oval, circle segment taper, "
+                        "turning general, turning boring, turning grooving, turning threading, "
+                        "waterjet, laser cutter, plasma cutter, holder."
+                    ),
                 },
                 "diameter": {"type": "number", "description": "Cutting diameter in mm"},
                 "description": {"type": "string", "description": "Human-readable name (auto-generated if omitted)"},
@@ -2320,6 +2333,7 @@ TOOLS: list[dict] = [
                 "shaft_diameter": {"type": "number", "description": "mm, defaults to diameter"},
                 "corner_radius": {"type": "number", "default": 0.0, "description": "mm, bull nose radius"},
                 "tip_angle": {"type": "number", "default": 118.0, "description": "Drill point angle in degrees"},
+                "taper_angle": {"type": "number", "default": 0.0, "description": "degrees, for tapered/chamfer/dovetail/circle-segment-taper types"},
                 "material": {
                     "type": "string",
                     "enum": ["carbide", "hss", "ti coated", "cobalt"],
