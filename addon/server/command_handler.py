@@ -3119,13 +3119,13 @@ class CommandHandler:
         if len(children) == 0:
             raise RuntimeError("No local tool libraries found at LocalLibraryLocation")
         if library_name is None:
-            return toolLibs.toolLibraryAtURL(children[0])
+            return toolLibs.toolLibraryAtURL(children[0]), children[0], toolLibs
         # Match by leafName (case-insensitive)
         name_lower = library_name.lower()
         for i in range(len(children)):
             url = children[i]
             if url.leafName.lower() == name_lower:
-                return toolLibs.toolLibraryAtURL(url)
+                return toolLibs.toolLibraryAtURL(url), url, toolLibs
         available = [children[i].leafName for i in range(len(children))]
         raise RuntimeError(
             f"Local library '{library_name}' not found. "
@@ -3468,8 +3468,10 @@ class CommandHandler:
                 f"Supported: {sorted(_tt.GEOMETRY_TEMPLATES.keys())}"
             )
 
+        lib_url = None
+        toolLibs = None
         if target == "local":
-            lib = self._get_local_library(library_name)
+            lib, lib_url, toolLibs = self._get_local_library(library_name)
         else:
             cam = self._get_cam()
             lib = cam.documentToolLibrary
@@ -3608,6 +3610,10 @@ class CommandHandler:
         if not ok:
             raise RuntimeError("lib.add() returned False")
 
+        # Persist to disk — local ToolLibrary is in-memory until updateToolLibrary is called
+        if target == "local":
+            toolLibs.updateToolLibrary(lib_url, lib)
+
         added_guid = tool_json["guid"]
         return {
             "created": True,
@@ -3655,6 +3661,9 @@ class CommandHandler:
         import adsk.cam, json
 
         local_lib = self._get_local_library(library_name)
+        # _get_local_library returns (lib, url, toolLibs) for local target
+        if isinstance(local_lib, tuple):
+            local_lib, _url, _toolLibs = local_lib
 
         # Find matching tool
         matched = None
