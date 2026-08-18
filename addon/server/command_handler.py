@@ -3102,13 +3102,13 @@ class CommandHandler:
             )
         return cam_product
 
-    def _get_local_library(self, library_name: str = None):
+    def _get_local_library(self, library_name=None):
         """Get a ToolLibrary from the local library location.
-        
+
         If library_name is given (e.g. 'Pinchy'), returns the child library
-        whose URL ends with that name (case-insensitive). If None, returns the
+        whose leafName matches (case-insensitive). If None, returns the
         first child library found (backwards-compatible default).
-        
+
         Raises RuntimeError if no matching library is found.
         """
         import adsk.cam
@@ -3119,16 +3119,14 @@ class CommandHandler:
         if len(children) == 0:
             raise RuntimeError("No local tool libraries found at LocalLibraryLocation")
         if library_name is None:
-            return toolLibs.toolLibraryAtURL(children.item(0))
-        # Search by name — URL ends with the library name, e.g. toollibraryroot://Local/Pinchy
+            return toolLibs.toolLibraryAtURL(children[0])
+        # Match by leafName (case-insensitive)
         name_lower = library_name.lower()
         for i in range(len(children)):
-            url = children.item(i)
-            url_str = str(url)
-            if url_str.rstrip("/").lower().endswith("/" + name_lower):
+            url = children[i]
+            if url.leafName.lower() == name_lower:
                 return toolLibs.toolLibraryAtURL(url)
-        # List available for error message
-        available = [str(children.item(i)) for i in range(len(children))]
+        available = [children[i].leafName for i in range(len(children))]
         raise RuntimeError(
             f"Local library '{library_name}' not found. "
             f"Available: {available}"
@@ -3727,13 +3725,14 @@ class CommandHandler:
 
         libraries = []
         for i in range(len(children)):
-            lib_url = children.item(i)
-            url_str = str(lib_url)
+            url = children[i]
+            url_str = url.toString()
+            leaf = url.leafName
             # Filter by library_name if provided
-            if library_name and not url_str.rstrip("/").lower().endswith("/" + library_name.lower()):
+            if library_name and leaf.lower() != library_name.lower():
                 continue
             try:
-                lib = toolLibs.toolLibraryAtURL(lib_url)
+                lib = toolLibs.toolLibraryAtURL(url)
                 tools = []
                 if detail:
                     for j in range(lib.count):
@@ -3749,12 +3748,13 @@ class CommandHandler:
                             "guid": tj.get("guid"),
                         })
                 libraries.append({
-                    "url": str(lib_url),
+                    "url": url_str,
+                    "name": leaf,
                     "count": lib.count,
                     "tools": tools,
                 })
             except Exception as e:
-                libraries.append({"url": str(lib_url), "error": str(e)})
+                libraries.append({"url": url_str, "name": leaf, "error": str(e)})
 
         return {
             "location": location,
