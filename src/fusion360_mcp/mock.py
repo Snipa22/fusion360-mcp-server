@@ -871,19 +871,25 @@ def _unfold(p: dict) -> dict:
 def _cam_create_setup(p: dict) -> dict:
     return {
         "setup_name": p.get("name", "Setup1"),
-        "body_name": p.get("body_name", "Body1"),
+        "body_name": p.get("body_name"),
         "operation_type": p.get("operation_type", "milling"),
         "stock_mode": p.get("stock_mode", "relative_box"),
+        "models_count": 1 if p.get("body_name") else 0,
     }
 
 
 def _cam_create_operation(p: dict) -> dict:
-    return {
+    result = {
         "setup_name": p.get("setup_name", "Setup1"),
         "operation_name": p.get("name", "Operation1"),
         "strategy": p.get("strategy", "2d_contour"),
-        "tool_diameter": p.get("tool_diameter", 0.6),
     }
+    if p.get("tool_diameter") and not p.get("tool_number"):
+        result["tool_warning"] = (
+            "tool_diameter was specified but no tool was attached. "
+            "Use tool_number to reference an existing library tool."
+        )
+    return result
 
 
 def _cam_generate_toolpath(p: dict) -> dict:
@@ -892,16 +898,19 @@ def _cam_generate_toolpath(p: dict) -> dict:
         "operation_name": p.get("operation_name"),
         "generated": True,
         "toolpath_count": 1,
+        "timed_out": False,
     }
 
 
 def _cam_post_process(p: dict) -> dict:
     setup = p.get("setup_name", "Setup1")
     post = p.get("post_processor", "fanuc")
+    folder = p.get("output_folder", "~/Desktop")
     return {
         "setup_name": setup,
         "post_processor": post,
-        "output_file": f"~/Desktop/{setup}.nc",
+        "output_file": f"{folder}/{setup}.nc",
+        "file_written": True,
         "output_units": p.get("output_units", "mm"),
     }
 

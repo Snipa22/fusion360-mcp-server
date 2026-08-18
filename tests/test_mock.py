@@ -866,6 +866,7 @@ class TestMockCAM:
         assert result["setup_name"] == "MySetup"
         assert result["body_name"] == "Part1"
         assert result["operation_type"] == "milling"
+        assert result["models_count"] == 1
 
     def test_cam_create_operation(self):
         result = mock_command(
@@ -874,10 +875,12 @@ class TestMockCAM:
                 "setup_name": "Setup1",
                 "strategy": "2d_adaptive",
                 "name": "Rough1",
+                "tool_diameter": 6.0,
             },
         )
         assert result["strategy"] == "2d_adaptive"
         assert result["operation_name"] == "Rough1"
+        assert "tool_warning" in result
 
     def test_cam_generate_toolpath(self):
         result = mock_command(
@@ -888,6 +891,7 @@ class TestMockCAM:
         )
         assert result["generated"] is True
         assert result["toolpath_count"] >= 1
+        assert result["timed_out"] is False
 
     def test_cam_post_process(self):
         result = mock_command(
@@ -899,6 +903,7 @@ class TestMockCAM:
         )
         assert result["post_processor"] == "grbl"
         assert "output_file" in result
+        assert result["file_written"] is True
 
     def test_cam_list_setups(self):
         result = mock_command("cam_list_setups")

@@ -2144,13 +2144,19 @@ TOOLS: list[dict] = [
                 "tool_number": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "Tool number from library",
+                    "description": (
+                        "Tool number from library. Recommended over tool_diameter — "
+                        "references a tool already added to Fusion's Tool Library"
+                    ),
                 },
                 "tool_diameter": {
                     "type": "number",
                     "minimum": 0.001,
                     "description": (
-                        "Tool diameter (cm) — used if tool_number not specified"
+                        "Tool diameter (cm) — used if tool_number not specified. "
+                        "NOTE: Fusion requires a tool to exist in the Tool Library; "
+                        "if no matching tool is found, a warning is returned and "
+                        "toolpath generation will fail"
                     ),
                 },
                 "stepdown": {
@@ -2231,7 +2237,11 @@ TOOLS: list[dict] = [
                     "description": (
                         "Post processor name "
                         "(e.g. 'fanuc', 'grbl', 'haas', "
-                        "'linuxcnc', 'mach3')"
+                        "'linuxcnc', 'mach3'). "
+                        "Use the bare name (e.g. 'linuxcnc'); the wrapper searches "
+                        "both Fusion's built-in and user-downloaded post folders. "
+                        "Download posts first via Manufacture → Post Process → "
+                        "cloud icon in Fusion."
                     ),
                 },
                 "output_folder": {

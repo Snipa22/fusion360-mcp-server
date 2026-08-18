@@ -37,6 +37,42 @@ def _now_iso() -> str:
     return datetime.datetime.now().isoformat()
 
 
+def _resolve_post_path(cam, post_processor: str) -> str:
+    """Resolve a post-processor name/path to a real .cps file on disk.
+
+    ``cam.genericPostFolder`` only contains Fusion's built-in posts —
+    user-downloaded posts live elsewhere (e.g. the Windows AppData
+    folder). Search all known locations before giving up.
+    """
+    # 1. Absolute path given
+    if os.path.isabs(post_processor) and os.path.isfile(post_processor):
+        return post_processor
+    name = post_processor if post_processor.endswith(".cps") else f"{post_processor}.cps"
+    # 2. Generic (built-in) post folder
+    generic_path = os.path.join(cam.genericPostFolder, name)
+    if os.path.isfile(generic_path):
+        return generic_path
+    # 3. Personal/user post folder (Windows: AppData)
+    user_post_dir = os.path.join(
+        os.path.expanduser("~"),
+        "AppData", "Roaming", "Autodesk", "Fusion 360 CAM", "Posts",
+    )
+    user_path = os.path.join(user_post_dir, name)
+    if os.path.isfile(user_path):
+        return user_path
+    # 4. Try personalPostFolder if it exists on the cam object
+    personal_folder = getattr(cam, "personalPostFolder", None)
+    if personal_folder:
+        personal_path = os.path.join(personal_folder, name)
+        if os.path.isfile(personal_path):
+            return personal_path
+    raise RuntimeError(
+        f"Post processor '{post_processor}' not found. "
+        f"Searched: {cam.genericPostFolder}, {user_post_dir}. "
+        "Download it via Manufacture → Post Process → cloud icon in Fusion's UI first."
+    )
+
+
 # ----------------------------------------------------------------------
 # Hub crawl (adsk-dependent — cannot be unit tested; see hub_cache.py for
 # the pure I/O/filtering logic that backs list_hub_files and *is* tested).
@@ -3160,15 +3196,35 @@ class CommandHandler:
             )
 
         setup_input = cam.setups.createInput(op_type)
-        # Note: CAM setups operate on the full design model, not individual bodies.
-        # Fusion defaults to all bodies when models is not set.
-        # body_name is accepted for API compatibility but not used here.
 
         if name:
             setup_input.name = name
 
         setup = cam.setups.add(setup_input)
-        return {"name": setup.name, "body": body_name, "operation_type": operation_type}
+
+        if body_name:
+            design = self.app.activeDocument.products.itemByProductType(
+                "DesignProductType"
+            )
+            body = None
+            root = adsk.fusion.Design.cast(design).rootComponent
+            for i in range(root.bRepBodies.count):
+                b = root.bRepBodies.item(i)
+                if b.name == body_name:
+                    body = b
+                    break
+            if body is None:
+                raise RuntimeError(f"Body '{body_name}' not found in design")
+            models_input = adsk.core.ObjectCollection.create()
+            models_input.add(body)
+            setup.models = models_input
+
+        return {
+            "name": setup.name,
+            "body": body_name,
+            "operation_type": operation_type,
+            "models_count": len(list(setup.models)),
+        }
 
     def cam_create_operation(
         self,
@@ -3189,15 +3245,37 @@ class CommandHandler:
         op_input = setup.operations.createInput(strategy)
         if name:
             op_input.name = name
-        if tool_diameter:
-            op_input.toolDiameter = adsk.core.ValueInput.createByReal(tool_diameter)
+        # NOTE: `toolDiameter` is not a real OperationInput property in the
+        # Fusion CAM API — setting it silently does nothing. Tool attachment
+        # is handled after the operation is created (see below).
         if stepdown:
             op_input.maximumStepdown = adsk.core.ValueInput.createByReal(stepdown)
         if stepover:
             op_input.maximumStepover = adsk.core.ValueInput.createByReal(stepover)
 
         op = setup.operations.add(op_input)
-        return {"name": op.name, "setup": setup_name, "strategy": strategy}
+
+        if tool_number is not None:
+            lib = cam.documentToolLibrary
+            for i in range(lib.count):
+                t = lib.item(i)
+                if t.number == tool_number:
+                    op.tool = t
+                    break
+            else:
+                raise RuntimeError(
+                    f"Tool number {tool_number} not found in document tool library"
+                )
+
+        result = {"name": op.name, "setup": setup_name, "strategy": strategy}
+        if tool_diameter and op.tool is None:
+            result["tool_warning"] = (
+                f"tool_diameter={tool_diameter} was specified but no tool was attached "
+                "(Fusion requires a tool to be added manually via Tool Library UI or "
+                "by passing tool_number referencing an existing library tool). "
+                "Generate toolpath will fail until a tool is assigned."
+            )
+        return result
 
     def cam_generate_toolpath(
         self,
@@ -3206,25 +3284,41 @@ class CommandHandler:
         generate_all: bool = False,
     ):
         cam = self._get_cam()
+        import time as _time
 
         if generate_all:
             future = cam.generateAllToolpaths(False)
-            import time as _time
-            while not future.isGenerationCompleted:
-                _time.sleep(0.1)
-            return {"generated": True, "scope": "all"}
+            # Wait for generation to start before polling (race fix)
+            _time.sleep(0.5)
+            waited = 0.5
+            timeout = 60
+            while not future.isGenerationCompleted and waited < timeout:
+                _time.sleep(1.0)
+                waited += 1.0
+            return {
+                "generated": True,
+                "scope": "all",
+                "timed_out": waited >= timeout,
+            }
 
         if operation_name and setup_name:
             setup = self._find_setup(cam, setup_name)
             op = self._find_operation(setup, operation_name)
             future = cam.generateToolpath(op)
-            import time as _time
-            while not future.isGenerationCompleted:
-                _time.sleep(0.1)
+            # Wait for generation to start before polling (race fix)
+            _time.sleep(0.5)
+            waited = 0.5
+            timeout = 30
+            while not future.isGenerationCompleted and waited < timeout:
+                _time.sleep(1.0)
+                waited += 1.0
+            # numberOfErrors/numberOfWarnings don't exist in this Fusion CAM
+            # API version — use op.hasToolpath as ground truth
             return {
-                "generated": True,
+                "generated": op.hasToolpath,
                 "scope": "operation",
                 "operation": operation_name,
+                "timed_out": waited >= timeout,
             }
 
         if setup_name:
@@ -3233,10 +3327,25 @@ class CommandHandler:
             for i in range(setup.operations.count):
                 ops.add(setup.operations.item(i))
             future = cam.generateToolpath(ops)
-            import time as _time
-            while not future.isGenerationCompleted:
-                _time.sleep(0.1)
-            return {"generated": True, "scope": "setup", "setup": setup_name}
+            # Wait for generation to start before polling (race fix)
+            _time.sleep(0.5)
+            waited = 0.5
+            timeout = 30
+            while not future.isGenerationCompleted and waited < timeout:
+                _time.sleep(1.0)
+                waited += 1.0
+            # numberOfErrors/numberOfWarnings don't exist in this Fusion CAM
+            # API version — use op.hasToolpath as ground truth
+            all_done = all(
+                setup.operations.item(i).hasToolpath
+                for i in range(setup.operations.count)
+            )
+            return {
+                "generated": all_done,
+                "scope": "setup",
+                "setup": setup_name,
+                "timed_out": waited >= timeout,
+            }
 
         raise RuntimeError("Provide setup_name, operation_name, or generate_all=true")
 
@@ -3254,7 +3363,7 @@ class CommandHandler:
         if not output_folder:
             output_folder = os.path.join(os.path.expanduser("~"), "Desktop")
 
-        post_config = os.path.join(cam.genericPostFolder, f"{post_processor}.cps")
+        post_config = _resolve_post_path(cam, post_processor)
 
         units = (
             adsk.cam.PostOutputUnitOptions.MillimetersOutput
@@ -3273,12 +3382,24 @@ class CommandHandler:
         else:
             cam.postProcess(setup, post_input)
 
-        return {
+        # Find the output file (Fusion appends .nc/.tap to setup_name in the folder)
+        nc_file = os.path.join(output_folder, f"{setup_name}.nc")
+        tap_file = os.path.join(output_folder, f"{setup_name}.tap")
+        output_file = (
+            nc_file
+            if os.path.isfile(nc_file)
+            else (tap_file if os.path.isfile(tap_file) else None)
+        )
+
+        result = {
             "setup": setup_name,
             "post_processor": post_processor,
             "output_folder": output_folder,
             "units": output_units,
         }
+        result["output_file"] = output_file
+        result["file_written"] = output_file is not None
+        return result
 
     # ------------------------------------------------------------------
     # Document management
@@ -3615,6 +3736,9 @@ class CommandHandler:
     # ------------------------------------------------------------------
 
     def execute_code(self, code: str):
+        # WARNING: Fusion-side crashes (e.g. Tool.createFromJson with malformed JSON) can drop
+        # the TCP connection entirely. This is a Fusion API bug — our try/except cannot catch it.
+        # The workaround is: never call Tool.createFromJson with a guessed/untested JSON schema.
         design = self._design()
         type_before = design.designType
 
@@ -3634,23 +3758,31 @@ class CommandHandler:
         except SyntaxError as exc:
             raise RuntimeError(f"SyntaxError: {exc}")
 
-        last_expr_value = None
-        if tree.body and isinstance(tree.body[-1], ast.Expr):
-            last_node = tree.body.pop()
-            if tree.body:
+        try:
+            last_expr_value = None
+            if tree.body and isinstance(tree.body[-1], ast.Expr):
+                last_node = tree.body.pop()
+                if tree.body:
+                    with redirect_stdout(buf):
+                        exec(
+                            compile(
+                                ast.Module(body=tree.body, type_ignores=[]), "<mcp>", "exec"
+                            ),
+                            ns,
+                        )
+                expr_code = compile(ast.Expression(body=last_node.value), "<mcp>", "eval")
                 with redirect_stdout(buf):
-                    exec(
-                        compile(
-                            ast.Module(body=tree.body, type_ignores=[]), "<mcp>", "exec"
-                        ),
-                        ns,
-                    )
-            expr_code = compile(ast.Expression(body=last_node.value), "<mcp>", "eval")
-            with redirect_stdout(buf):
-                last_expr_value = eval(expr_code, ns)
-        else:
-            with redirect_stdout(buf):
-                exec(compile(tree, "<mcp>", "exec"), ns)
+                    last_expr_value = eval(expr_code, ns)
+            else:
+                with redirect_stdout(buf):
+                    exec(compile(tree, "<mcp>", "exec"), ns)
+        except Exception as exc:
+            return {
+                "executed": False,
+                "error": str(exc) or exc.__class__.__name__,
+                "traceback": traceback.format_exc(),
+                "output": buf.getvalue(),
+            }
 
         output = buf.getvalue()
         result = last_expr_value if last_expr_value is not None else output
